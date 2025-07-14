@@ -91,6 +91,28 @@ impl BloodParticle {
     }
 }
 
+// Ground tile system for terrain
+#[derive(Debug, Clone)]
+struct GroundTile {
+    x: f32,
+    y: f32,
+    tile_type: TileType,
+}
+
+#[derive(Debug, Clone)]
+enum TileType {
+    Grass,
+    Dirt,
+    Stone,
+    DeadGrass,
+}
+
+impl GroundTile {
+    fn new(x: f32, y: f32, tile_type: TileType) -> Self {
+        Self { x, y, tile_type }
+    }
+}
+
 impl Moon {
     fn new() -> Self {
         Self {
@@ -310,6 +332,7 @@ struct GameState {
     stars: Vec<Star>,
     moon: Moon,
     blood_particles: Vec<BloodParticle>,
+    ground_tiles: Vec<GroundTile>,
 }
 
 impl GameState {
@@ -340,10 +363,12 @@ impl GameState {
             stars: Vec::new(),
             moon: Moon::new(),
             blood_particles: Vec::new(),
+            ground_tiles: Vec::new(),
         };
 
         state.initialize_world();
         state.initialize_stars();
+        state.initialize_ground();
         state
     }
 
@@ -351,7 +376,7 @@ impl GameState {
         // Create player
         let player = GameEntity {
             id: self.next_entity_id,
-            position: Position { x: 400.0, y: 300.0 },
+            position: Position { x: 400.0, y: 650.0 },
             velocity: Velocity { x: 0.0, y: 0.0 },
             health: Some(Health {
                 current: 100.0,
@@ -394,22 +419,22 @@ impl GameState {
             Clan::new("Night-Bloods", "Silentfang", 10),
         );
 
-        // Create clan leaders
-        self.spawn_clan_leader("Grimjaw", "Bone-Eaters", 200.0, 200.0, BEIGE);
-        self.spawn_clan_leader("Shadowmere", "Flame-Haters", 600.0, 400.0, PURPLE);
-        self.spawn_clan_leader("Silentfang", "Night-Bloods", 800.0, 200.0, DARKBLUE);
+        // Create clan leaders (on ground)
+        self.spawn_clan_leader("Grimjaw", "Bone-Eaters", 200.0, 650.0, BEIGE);
+        self.spawn_clan_leader("Shadowmere", "Flame-Haters", 600.0, 700.0, PURPLE);
+        self.spawn_clan_leader("Silentfang", "Night-Bloods", 800.0, 620.0, DARKBLUE);
 
-        // Create some hostile infected
+        // Create some hostile infected (on ground)
         for _i in 0..8 {
             let x = rand::gen_range(100.0, 1000.0);
-            let y = rand::gen_range(100.0, 600.0);
+            let y = rand::gen_range(610.0, 1100.0);
             self.spawn_hostile_infected(x, y);
         }
 
-        // Create some animals (blood sources)
+        // Create some animals (blood sources on ground)
         for _i in 0..12 {
             let x = rand::gen_range(50.0, 1200.0);
-            let y = rand::gen_range(50.0, 700.0);
+            let y = rand::gen_range(610.0, 1150.0);
             self.spawn_animal(x, y);
         }
     }
@@ -443,6 +468,30 @@ impl GameState {
             let x = rand::gen_range(0.0, 1600.0);
             let y = rand::gen_range(0.0, 1200.0);
             self.stars.push(Star::new(x, y));
+        }
+    }
+
+    fn initialize_ground(&mut self) {
+        // Create ground tiles covering the world
+        let tile_size = 64.0;
+        let world_width = 1600.0;
+        let world_height = 1200.0;
+
+        // Ground starts at y = 600 (lower portion of screen)
+        let ground_level = 600.0;
+
+        for x in (0..((world_width / tile_size) as i32)).map(|i| i as f32 * tile_size) {
+            for y in (((ground_level / tile_size) as i32)..((world_height / tile_size) as i32))
+                .map(|i| i as f32 * tile_size)
+            {
+                let tile_type = match rand::gen_range(0, 100) {
+                    0..=60 => TileType::Grass,
+                    61..=80 => TileType::DeadGrass,
+                    81..=95 => TileType::Dirt,
+                    _ => TileType::Stone,
+                };
+                self.ground_tiles.push(GroundTile::new(x, y, tile_type));
+            }
         }
     }
 
@@ -625,9 +674,9 @@ impl GameState {
                 player.facing_direction = player.velocity.y.atan2(player.velocity.x);
             }
 
-            // Keep in bounds
+            // Keep in bounds (prevent going above ground or off edges)
             player.position.x = player.position.x.clamp(0.0, 1600.0);
-            player.position.y = player.position.y.clamp(0.0, 1200.0);
+            player.position.y = player.position.y.clamp(600.0, 1200.0); // Can't go above ground level
         }
     }
 
@@ -674,9 +723,9 @@ impl GameState {
                         entity.facing_direction = entity.velocity.y.atan2(entity.velocity.x);
                     }
 
-                    // Keep in bounds
+                    // Keep in bounds (on ground)
                     entity.position.x = entity.position.x.clamp(0.0, 1600.0);
-                    entity.position.y = entity.position.y.clamp(0.0, 1200.0);
+                    entity.position.y = entity.position.y.clamp(600.0, 1200.0);
                 }
             }
         }
@@ -965,6 +1014,9 @@ impl GameState {
         let zoom_level = 1.5; // Zoom in to see pixel art better
         let camera_offset_x = screen_width() / 2.0 - self.camera_x * zoom_level;
         let camera_offset_y = screen_height() / 2.0 - self.camera_y * zoom_level;
+
+        // Draw ground first (background layer)
+        self.draw_ground(camera_offset_x, camera_offset_y);
 
         // Draw stars and moon
         self.draw_stars(camera_offset_x, camera_offset_y);
@@ -1372,9 +1424,136 @@ impl GameState {
             14.0,
             LIGHTGRAY,
         );
+        y += 18.0;
+
+        draw_text(
+            "• Ground terrain shows grass, dirt, stone",
+            legend_x,
+            y,
+            14.0,
+            LIGHTGRAY,
+        );
+        y += 18.0;
+
+        draw_text(
+            "• Stars twinkle in the night sky above",
+            legend_x,
+            y,
+            14.0,
+            LIGHTGRAY,
+        );
         y += 25.0;
 
         draw_text("Press L to close", legend_x, y, 16.0, YELLOW);
+    }
+
+    fn draw_ground(&self, camera_offset_x: f32, camera_offset_y: f32) {
+        let zoom_level = 1.5;
+
+        for tile in &self.ground_tiles {
+            let screen_x = tile.x * zoom_level + camera_offset_x;
+            let screen_y = tile.y * zoom_level + camera_offset_y;
+
+            // Only draw tiles that are visible on screen
+            if screen_x > -100.0
+                && screen_x < screen_width() + 100.0
+                && screen_y > -100.0
+                && screen_y < screen_height() + 100.0
+            {
+                self.draw_ground_tile(screen_x, screen_y, 64.0 * zoom_level, &tile.tile_type);
+            }
+        }
+    }
+
+    fn draw_ground_tile(&self, x: f32, y: f32, size: f32, tile_type: &TileType) {
+        let pixel_size = size / 16.0; // 16x16 pixel tiles
+
+        match tile_type {
+            TileType::Grass => {
+                // Base grass color
+                draw_rectangle(x, y, size, size, Color::new(0.2, 0.4, 0.1, 1.0));
+
+                // Grass texture - small green pixels
+                for i in 0..8 {
+                    for j in 0..4 {
+                        let px = x
+                            + (i as f32 * pixel_size * 2.0)
+                            + rand::gen_range(-pixel_size, pixel_size);
+                        let py = y
+                            + (j as f32 * pixel_size * 4.0)
+                            + rand::gen_range(-pixel_size, pixel_size);
+                        draw_rectangle(
+                            px,
+                            py,
+                            pixel_size,
+                            pixel_size * 2.0,
+                            Color::new(0.3, 0.6, 0.2, 1.0),
+                        );
+                    }
+                }
+            }
+            TileType::DeadGrass => {
+                // Dead grass base
+                draw_rectangle(x, y, size, size, Color::new(0.4, 0.3, 0.1, 1.0));
+
+                // Dead grass texture
+                for i in 0..6 {
+                    for j in 0..3 {
+                        let px = x
+                            + (i as f32 * pixel_size * 2.5)
+                            + rand::gen_range(-pixel_size, pixel_size);
+                        let py = y
+                            + (j as f32 * pixel_size * 5.0)
+                            + rand::gen_range(-pixel_size, pixel_size);
+                        draw_rectangle(
+                            px,
+                            py,
+                            pixel_size,
+                            pixel_size * 2.0,
+                            Color::new(0.5, 0.4, 0.2, 1.0),
+                        );
+                    }
+                }
+            }
+            TileType::Dirt => {
+                // Base dirt color
+                draw_rectangle(x, y, size, size, Color::new(0.4, 0.2, 0.1, 1.0));
+
+                // Dirt texture - small darker spots
+                for _i in 0..12 {
+                    let px = x + rand::gen_range(0.0, size);
+                    let py = y + rand::gen_range(0.0, size);
+                    draw_circle(px, py, pixel_size * 0.8, Color::new(0.3, 0.15, 0.05, 1.0));
+                }
+            }
+            TileType::Stone => {
+                // Base stone color
+                draw_rectangle(x, y, size, size, Color::new(0.5, 0.5, 0.5, 1.0));
+
+                // Stone texture - rectangular patterns
+                for i in 0..4 {
+                    for j in 0..4 {
+                        let px = x + (i as f32 * pixel_size * 4.0);
+                        let py = y + (j as f32 * pixel_size * 4.0);
+                        draw_rectangle(
+                            px,
+                            py,
+                            pixel_size * 3.0,
+                            pixel_size * 3.0,
+                            Color::new(0.6, 0.6, 0.6, 1.0),
+                        );
+                        draw_rectangle_lines(
+                            px,
+                            py,
+                            pixel_size * 3.0,
+                            pixel_size * 3.0,
+                            1.0,
+                            Color::new(0.4, 0.4, 0.4, 1.0),
+                        );
+                    }
+                }
+            }
+        }
     }
 
     fn draw_moon(&self, camera_offset_x: f32, camera_offset_y: f32) {
@@ -1833,8 +2012,8 @@ impl GameState {
         y += 25.0;
 
         draw_text(
-            "The game features pixel art graphics and a beautiful starry night sky.",
-            center_x - 230.0,
+            "The game features pixel art graphics, ground terrain, and a starry night sky.",
+            center_x - 240.0,
             y,
             16.0,
             LIGHTGRAY,
@@ -1898,8 +2077,8 @@ impl GameState {
         y += 20.0;
 
         draw_text(
-            "• Feed on small animals (creatures with ears and tails) for easy blood",
-            center_x - 210.0,
+            "• Feed on small animals (creatures with ears and tails) on the ground",
+            center_x - 200.0,
             y,
             16.0,
             LIGHTGRAY,
@@ -1918,6 +2097,15 @@ impl GameState {
         draw_text(
             "• Your abilities improve each time you feed",
             center_x - 160.0,
+            y,
+            16.0,
+            LIGHTGRAY,
+        );
+        y += 20.0;
+
+        draw_text(
+            "• Walk on varied ground terrain (grass, dirt, stone)",
+            center_x - 170.0,
             y,
             16.0,
             LIGHTGRAY,
