@@ -6,6 +6,107 @@ use macroquad::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+// Background stars for atmosphere
+#[derive(Debug, Clone)]
+struct Star {
+    x: f32,
+    y: f32,
+    brightness: f32,
+    twinkle_speed: f32,
+    twinkle_offset: f32,
+}
+
+impl Star {
+    fn new(x: f32, y: f32) -> Self {
+        Self {
+            x,
+            y,
+            brightness: rand::gen_range(0.3, 1.0),
+            twinkle_speed: rand::gen_range(0.5, 2.0),
+            twinkle_offset: rand::gen_range(0.0, 6.28),
+        }
+    }
+
+    fn update(&mut self, time: f32) {
+        // Create twinkling effect
+        let twinkle = ((time * self.twinkle_speed + self.twinkle_offset).sin() + 1.0) * 0.5;
+        self.brightness = 0.3 + twinkle * 0.7;
+    }
+}
+
+// Moon for atmospheric night sky
+#[derive(Debug, Clone)]
+struct Moon {
+    x: f32,
+    y: f32,
+    phase: f32, // 0.0 to 1.0 for waxing/waning
+    glow_intensity: f32,
+}
+
+// Blood particle effect
+#[derive(Debug, Clone)]
+struct BloodParticle {
+    x: f32,
+    y: f32,
+    velocity_x: f32,
+    velocity_y: f32,
+    life: f32,
+    max_life: f32,
+    size: f32,
+}
+
+impl BloodParticle {
+    fn new(x: f32, y: f32) -> Self {
+        Self {
+            x,
+            y,
+            velocity_x: rand::gen_range(-30.0, 30.0),
+            velocity_y: rand::gen_range(-50.0, -10.0),
+            life: 1.0,
+            max_life: 1.0,
+            size: rand::gen_range(1.0, 3.0),
+        }
+    }
+
+    fn update(&mut self, delta_time: f32) -> bool {
+        self.x += self.velocity_x * delta_time;
+        self.y += self.velocity_y * delta_time;
+        self.velocity_y += 98.0 * delta_time; // Gravity
+        self.life -= delta_time * 2.0; // Fade over time
+        self.life > 0.0
+    }
+
+    fn draw(&self, camera_offset_x: f32, camera_offset_y: f32) {
+        let zoom_level = 1.5;
+        let screen_x = self.x * zoom_level + camera_offset_x;
+        let screen_y = self.y * zoom_level + camera_offset_y;
+        let alpha = self.life / self.max_life;
+
+        draw_circle(
+            screen_x,
+            screen_y,
+            self.size * zoom_level,
+            Color::new(0.8, 0.1, 0.1, alpha),
+        );
+    }
+}
+
+impl Moon {
+    fn new() -> Self {
+        Self {
+            x: 1400.0, // Fixed position in world
+            y: 100.0,
+            phase: 0.8, // Nearly full moon
+            glow_intensity: 0.9,
+        }
+    }
+
+    fn update(&mut self, time: f32) {
+        // Subtle glow pulsing
+        self.glow_intensity = 0.7 + ((time * 0.3).sin() + 1.0) * 0.1;
+    }
+}
+
 // Core game components
 #[derive(Debug, Clone, Copy)]
 struct Position {
@@ -76,6 +177,7 @@ struct GameEntity {
     color: Color,
     ai_target: Option<u32>,
     ai_state: AIState,
+    facing_direction: f32, // For sprite direction
 }
 
 #[derive(Debug, Clone)]
@@ -205,6 +307,9 @@ struct GameState {
     game_time: f32,
     kills: u32,
     feeding_count: u32,
+    stars: Vec<Star>,
+    moon: Moon,
+    blood_particles: Vec<BloodParticle>,
 }
 
 impl GameState {
@@ -232,9 +337,13 @@ impl GameState {
             game_time: 0.0,
             kills: 0,
             feeding_count: 0,
+            stars: Vec::new(),
+            moon: Moon::new(),
+            blood_particles: Vec::new(),
         };
 
         state.initialize_world();
+        state.initialize_stars();
         state
     }
 
@@ -264,6 +373,7 @@ impl GameState {
             color: RED,
             ai_target: None,
             ai_state: AIState::Idle,
+            facing_direction: 0.0,
         };
 
         self.player_id = self.next_entity_id;
@@ -320,10 +430,20 @@ impl GameState {
             color,
             ai_target: None,
             ai_state: AIState::Idle,
+            facing_direction: 0.0,
         };
 
         self.entities.push(entity);
         self.next_entity_id += 1;
+    }
+
+    fn initialize_stars(&mut self) {
+        // Create a starfield background
+        for _ in 0..200 {
+            let x = rand::gen_range(0.0, 1600.0);
+            let y = rand::gen_range(0.0, 1200.0);
+            self.stars.push(Star::new(x, y));
+        }
     }
 
     fn spawn_hostile_infected(&mut self, x: f32, y: f32) {
@@ -342,6 +462,7 @@ impl GameState {
             color: Color::new(0.5, 0.1, 0.1, 1.0),
             ai_target: None,
             ai_state: AIState::Hostile,
+            facing_direction: 0.0,
         };
 
         self.entities.push(entity);
@@ -364,6 +485,7 @@ impl GameState {
             color: BROWN,
             ai_target: None,
             ai_state: AIState::Idle,
+            facing_direction: 0.0,
         };
 
         self.entities.push(entity);
@@ -381,6 +503,21 @@ impl GameState {
         // Update game time
         self.game_time += delta_time;
         self.time.update(delta_time);
+
+        // Update stars and moon
+        for star in &mut self.stars {
+            star.update(self.game_time);
+        }
+        self.moon.update(self.game_time);
+
+        // Update blood particles
+        self.blood_particles.retain(|particle| {
+            let mut p = particle.clone();
+            p.update(delta_time)
+        });
+        for particle in &mut self.blood_particles {
+            particle.update(delta_time);
+        }
 
         // Update player movement
         self.update_player_movement(delta_time);
@@ -468,9 +605,9 @@ impl GameState {
             }
 
             let speed = if let Some(abilities) = &player.abilities {
-                200.0 * abilities.speed
+                130.0 * abilities.speed // Reduced for zoom level
             } else {
-                200.0
+                130.0
             };
 
             // Apply sunlight penalty
@@ -482,6 +619,11 @@ impl GameState {
             // Update position
             player.position.x += player.velocity.x * delta_time;
             player.position.y += player.velocity.y * delta_time;
+
+            // Update facing direction
+            if player.velocity.x.abs() > 0.1 || player.velocity.y.abs() > 0.1 {
+                player.facing_direction = player.velocity.y.atan2(player.velocity.x);
+            }
 
             // Keep in bounds
             player.position.x = player.position.x.clamp(0.0, 1600.0);
@@ -520,12 +662,17 @@ impl GameState {
         for (entity_id, dx, dy, distance) in ai_updates {
             if let Some(entity) = self.entities.iter_mut().find(|e| e.id == entity_id) {
                 if distance > 0.0 {
-                    let speed = 80.0 * delta_time;
+                    let speed = 53.0 * delta_time; // Reduced for zoom level
                     entity.velocity.x = (dx / distance) * speed;
                     entity.velocity.y = (dy / distance) * speed;
 
                     entity.position.x += entity.velocity.x;
                     entity.position.y += entity.velocity.y;
+
+                    // Update facing direction
+                    if entity.velocity.x.abs() > 0.1 || entity.velocity.y.abs() > 0.1 {
+                        entity.facing_direction = entity.velocity.y.atan2(entity.velocity.x);
+                    }
 
                     // Keep in bounds
                     entity.position.x = entity.position.x.clamp(0.0, 1600.0);
@@ -594,7 +741,21 @@ impl GameState {
         }
 
         if let Some(target_id) = target_id {
+            // Get position for blood effect
+            let target_pos = if let Some(target) = self.entities.iter().find(|e| e.id == target_id)
+            {
+                target.position
+            } else {
+                return;
+            };
+
             self.feed_on_target(target_id);
+
+            // Create blood particle effect
+            for _ in 0..8 {
+                self.blood_particles
+                    .push(BloodParticle::new(target_pos.x, target_pos.y));
+            }
         }
     }
 
@@ -798,29 +959,39 @@ impl GameState {
     }
 
     fn render(&self) {
-        clear_background(BLACK);
+        clear_background(Color::new(0.05, 0.05, 0.15, 1.0)); // Dark blue night sky
 
-        // Calculate camera offset
-        let camera_offset_x = screen_width() / 2.0 - self.camera_x;
-        let camera_offset_y = screen_height() / 2.0 - self.camera_y;
+        // Calculate camera offset with zoom
+        let zoom_level = 1.5; // Zoom in to see pixel art better
+        let camera_offset_x = screen_width() / 2.0 - self.camera_x * zoom_level;
+        let camera_offset_y = screen_height() / 2.0 - self.camera_y * zoom_level;
+
+        // Draw stars and moon
+        self.draw_stars(camera_offset_x, camera_offset_y);
+        self.draw_moon(camera_offset_x, camera_offset_y);
+
+        // Draw blood particles
+        for particle in &self.blood_particles {
+            particle.draw(camera_offset_x, camera_offset_y);
+        }
 
         // Draw all entities
         for entity in &self.entities {
-            let screen_x = entity.position.x + camera_offset_x;
-            let screen_y = entity.position.y + camera_offset_y;
+            let screen_x = entity.position.x * zoom_level + camera_offset_x;
+            let screen_y = entity.position.y * zoom_level + camera_offset_y;
 
             // Only draw if on screen
-            if screen_x > -20.0
-                && screen_x < screen_width() + 20.0
-                && screen_y > -20.0
-                && screen_y < screen_height() + 20.0
+            if screen_x > -40.0
+                && screen_x < screen_width() + 40.0
+                && screen_y > -40.0
+                && screen_y < screen_height() + 40.0
             {
                 let size = match entity.entity_type {
-                    EntityType::Player => 20.0,
-                    EntityType::ClanLeader(_) => 18.0,
-                    EntityType::ClanMember(_) => 15.0,
-                    EntityType::HostileInfected => 12.0,
-                    EntityType::Animal => 10.0,
+                    EntityType::Player => 30.0, // Larger for better detail
+                    EntityType::ClanLeader(_) => 28.0,
+                    EntityType::ClanMember(_) => 24.0,
+                    EntityType::HostileInfected => 20.0,
+                    EntityType::Animal => 16.0,
                 };
 
                 // Don't draw dead entities
@@ -830,92 +1001,35 @@ impl GameState {
                     }
                 }
 
-                // Draw entity with visual distinction
+                // Draw entity with pixel art
                 match entity.entity_type {
                     EntityType::Player => {
-                        // Player - diamond shape
-                        draw_rectangle(
-                            screen_x - size / 2.0,
-                            screen_y - size / 2.0,
-                            size,
-                            size,
-                            entity.color,
-                        );
-                        // Add border to make player stand out
-                        draw_rectangle_lines(
-                            screen_x - size / 2.0,
-                            screen_y - size / 2.0,
-                            size,
-                            size,
-                            2.0,
-                            WHITE,
-                        );
+                        self.draw_vampire_sprite(screen_x, screen_y, size, entity.facing_direction);
                     }
                     EntityType::ClanLeader(_) => {
-                        // Clan leaders - larger rectangle with crown symbol
-                        draw_rectangle(
-                            screen_x - size / 2.0,
-                            screen_y - size / 2.0,
-                            size,
-                            size,
-                            entity.color,
-                        );
-                        // Draw crown (small triangle on top)
-                        draw_triangle(
-                            Vec2::new(screen_x, screen_y - size / 2.0 - 3.0),
-                            Vec2::new(screen_x - 4.0, screen_y - size / 2.0 + 2.0),
-                            Vec2::new(screen_x + 4.0, screen_y - size / 2.0 + 2.0),
-                            GOLD,
-                        );
+                        self.draw_clan_leader_sprite(screen_x, screen_y, size, entity.color);
                     }
                     EntityType::HostileInfected => {
-                        // Hostile infected - jagged shape
-                        draw_rectangle(
-                            screen_x - size / 2.0,
-                            screen_y - size / 2.0,
+                        self.draw_infected_sprite(
+                            screen_x,
+                            screen_y,
                             size,
-                            size,
-                            entity.color,
-                        );
-                        // Add X mark to show hostility
-                        draw_line(
-                            screen_x - size / 3.0,
-                            screen_y - size / 3.0,
-                            screen_x + size / 3.0,
-                            screen_y + size / 3.0,
-                            2.0,
-                            RED,
-                        );
-                        draw_line(
-                            screen_x + size / 3.0,
-                            screen_y - size / 3.0,
-                            screen_x - size / 3.0,
-                            screen_y + size / 3.0,
-                            2.0,
-                            RED,
+                            entity.facing_direction,
                         );
                     }
                     EntityType::Animal => {
-                        // Animals - circle shape
-                        draw_circle(screen_x, screen_y, size / 2.0, entity.color);
+                        self.draw_animal_sprite(screen_x, screen_y, size);
                     }
                     EntityType::ClanMember(_) => {
-                        // Regular rectangle for clan members
-                        draw_rectangle(
-                            screen_x - size / 2.0,
-                            screen_y - size / 2.0,
-                            size,
-                            size,
-                            entity.color,
-                        );
+                        self.draw_clan_member_sprite(screen_x, screen_y, size, entity.color);
                     }
                 }
 
                 // Draw health bar if entity has health
                 if let Some(health) = &entity.health {
                     let bar_width = size;
-                    let bar_height = 4.0;
-                    let bar_y = screen_y - size / 2.0 - 8.0;
+                    let bar_height = 6.0; // Slightly thicker for zoom
+                    let bar_y = screen_y - size / 2.0 - 12.0; // More space for zoom
 
                     // Background bar
                     draw_rectangle(
@@ -1139,110 +1253,92 @@ impl GameState {
         let color_size = 15.0;
         let text_offset = 25.0;
 
-        // Player - diamond with border
-        draw_rectangle(legend_x, y, color_size, color_size, RED);
-        draw_rectangle_lines(legend_x, y, color_size, color_size, 1.0, WHITE);
-        draw_text(
-            "Player (You) - Red square with border",
-            legend_x + text_offset,
-            y + 12.0,
-            14.0,
-            WHITE,
-        );
-        y += 25.0;
-
-        // Clan Leaders with crown symbol
-        draw_rectangle(legend_x, y, color_size, color_size, BEIGE);
-        draw_triangle(
-            Vec2::new(legend_x + color_size / 2.0, y - 2.0),
-            Vec2::new(legend_x + color_size / 2.0 - 3.0, y + 3.0),
-            Vec2::new(legend_x + color_size / 2.0 + 3.0, y + 3.0),
-            GOLD,
-        );
-        draw_text(
-            "Bone-Eaters Leader (Crown)",
-            legend_x + text_offset,
-            y + 12.0,
-            14.0,
-            WHITE,
-        );
-        y += 20.0;
-
-        draw_rectangle(legend_x, y, color_size, color_size, PURPLE);
-        draw_triangle(
-            Vec2::new(legend_x + color_size / 2.0, y - 2.0),
-            Vec2::new(legend_x + color_size / 2.0 - 3.0, y + 3.0),
-            Vec2::new(legend_x + color_size / 2.0 + 3.0, y + 3.0),
-            GOLD,
-        );
-        draw_text(
-            "Flame-Haters Leader (Crown)",
-            legend_x + text_offset,
-            y + 12.0,
-            14.0,
-            WHITE,
-        );
-        y += 20.0;
-
-        draw_rectangle(legend_x, y, color_size, color_size, DARKBLUE);
-        draw_triangle(
-            Vec2::new(legend_x + color_size / 2.0, y - 2.0),
-            Vec2::new(legend_x + color_size / 2.0 - 3.0, y + 3.0),
-            Vec2::new(legend_x + color_size / 2.0 + 3.0, y + 3.0),
-            GOLD,
-        );
-        draw_text(
-            "Night-Bloods Leader (Crown)",
-            legend_x + text_offset,
-            y + 12.0,
-            14.0,
-            WHITE,
-        );
-        y += 25.0;
-
-        // Enemies with X marks
-        draw_rectangle(
-            legend_x,
-            y,
-            color_size,
-            color_size,
-            Color::new(0.5, 0.1, 0.1, 1.0),
-        );
-        // Draw X mark
-        draw_line(
-            legend_x + 3.0,
-            y + 3.0,
-            legend_x + color_size - 3.0,
-            y + color_size - 3.0,
-            1.0,
-            RED,
-        );
-        draw_line(
-            legend_x + color_size - 3.0,
-            y + 3.0,
-            legend_x + 3.0,
-            y + color_size - 3.0,
-            1.0,
-            RED,
-        );
-        draw_text(
-            "Hostile Infected (X mark)",
-            legend_x + text_offset,
-            y + 12.0,
-            14.0,
-            WHITE,
-        );
-        y += 20.0;
-
-        // Animals - circles
-        draw_circle(
+        // Player - vampire with pixel art
+        self.draw_vampire_sprite(
             legend_x + color_size / 2.0,
             y + color_size / 2.0,
-            color_size / 2.0,
-            BROWN,
+            color_size * 1.5, // Larger for better visibility
+            0.0,
         );
         draw_text(
-            "Animals - Circles (Blood Source)",
+            "Player (You) - Vampire with red cape",
+            legend_x + text_offset,
+            y + 12.0,
+            14.0,
+            WHITE,
+        );
+        y += 25.0;
+
+        // Clan Leaders with pixel art
+        self.draw_clan_leader_sprite(
+            legend_x + color_size / 2.0,
+            y + color_size / 2.0,
+            color_size * 1.5, // Larger for better visibility
+            BEIGE,
+        );
+        draw_text(
+            "Bone-Eaters Leader (Gold crown)",
+            legend_x + text_offset,
+            y + 12.0,
+            14.0,
+            WHITE,
+        );
+        y += 20.0;
+
+        self.draw_clan_leader_sprite(
+            legend_x + color_size / 2.0,
+            y + color_size / 2.0,
+            color_size * 1.5, // Larger for better visibility
+            PURPLE,
+        );
+        draw_text(
+            "Flame-Haters Leader (Gold crown)",
+            legend_x + text_offset,
+            y + 12.0,
+            14.0,
+            WHITE,
+        );
+        y += 20.0;
+
+        self.draw_clan_leader_sprite(
+            legend_x + color_size / 2.0,
+            y + color_size / 2.0,
+            color_size * 1.5, // Larger for better visibility
+            DARKBLUE,
+        );
+        draw_text(
+            "Night-Bloods Leader (Gold crown)",
+            legend_x + text_offset,
+            y + 12.0,
+            14.0,
+            WHITE,
+        );
+        y += 25.0;
+
+        // Enemies with pixel art
+        self.draw_infected_sprite(
+            legend_x + color_size / 2.0,
+            y + color_size / 2.0,
+            color_size * 1.5, // Larger for better visibility
+            0.0,
+        );
+        draw_text(
+            "Hostile Infected (Red eyes, claws)",
+            legend_x + text_offset,
+            y + 12.0,
+            14.0,
+            WHITE,
+        );
+        y += 20.0;
+
+        // Animals with pixel art
+        self.draw_animal_sprite(
+            legend_x + color_size / 2.0,
+            y + color_size / 2.0,
+            color_size * 1.5, // Larger for better visibility
+        );
+        draw_text(
+            "Animals (Blood sources)",
             legend_x + text_offset,
             y + 12.0,
             14.0,
@@ -1279,6 +1375,419 @@ impl GameState {
         y += 25.0;
 
         draw_text("Press L to close", legend_x, y, 16.0, YELLOW);
+    }
+
+    fn draw_moon(&self, camera_offset_x: f32, camera_offset_y: f32) {
+        let zoom_level = 1.5;
+        let screen_x = self.moon.x * zoom_level + camera_offset_x;
+        let screen_y = self.moon.y * zoom_level + camera_offset_y;
+
+        // Only draw moon if on screen
+        if screen_x > -50.0
+            && screen_x < screen_width() + 50.0
+            && screen_y > -50.0
+            && screen_y < screen_height() + 50.0
+        {
+            let moon_size = if self.time.is_day { 22.0 } else { 38.0 }; // Larger for zoom
+            let moon_alpha = if self.time.is_day {
+                0.2
+            } else {
+                self.moon.glow_intensity
+            };
+
+            // Moon glow
+            if !self.time.is_day {
+                draw_circle(
+                    screen_x,
+                    screen_y,
+                    moon_size + 8.0,
+                    Color::new(0.9, 0.9, 0.7, moon_alpha * 0.3),
+                );
+            }
+
+            // Main moon body
+            draw_circle(
+                screen_x,
+                screen_y,
+                moon_size,
+                Color::new(0.95, 0.95, 0.85, moon_alpha),
+            );
+
+            // Moon craters for detail
+            if !self.time.is_day {
+                draw_circle(
+                    screen_x - 6.0,
+                    screen_y - 4.0,
+                    3.0,
+                    Color::new(0.8, 0.8, 0.7, moon_alpha * 0.6),
+                );
+                draw_circle(
+                    screen_x + 4.0,
+                    screen_y + 2.0,
+                    2.0,
+                    Color::new(0.8, 0.8, 0.7, moon_alpha * 0.6),
+                );
+                draw_circle(
+                    screen_x - 2.0,
+                    screen_y + 6.0,
+                    1.5,
+                    Color::new(0.8, 0.8, 0.7, moon_alpha * 0.6),
+                );
+            }
+        }
+    }
+
+    fn create_blood_effect(&mut self, x: f32, y: f32, intensity: u32) {
+        for _ in 0..intensity {
+            self.blood_particles.push(BloodParticle::new(x, y));
+        }
+    }
+
+    fn draw_stars(&self, camera_offset_x: f32, camera_offset_y: f32) {
+        let zoom_level = 1.5;
+        for star in &self.stars {
+            let screen_x = star.x * zoom_level + camera_offset_x;
+            let screen_y = star.y * zoom_level + camera_offset_y;
+
+            // Only draw stars on screen
+            if screen_x > -10.0
+                && screen_x < screen_width() + 10.0
+                && screen_y > -10.0
+                && screen_y < screen_height() + 10.0
+            {
+                let alpha = star.brightness * if self.time.is_day { 0.1 } else { 1.0 };
+                draw_circle(screen_x, screen_y, 1.5, Color::new(1.0, 1.0, 0.9, alpha));
+                // Slightly larger stars
+            }
+        }
+    }
+
+    fn draw_vampire_sprite(&self, x: f32, y: f32, size: f32, facing: f32) {
+        let pixel_size = size / 8.0;
+
+        // Main body (red)
+        draw_rectangle(
+            x - 2.0 * pixel_size,
+            y - 3.0 * pixel_size,
+            4.0 * pixel_size,
+            6.0 * pixel_size,
+            RED,
+        );
+
+        // Head (pale)
+        draw_rectangle(
+            x - 1.5 * pixel_size,
+            y - 4.0 * pixel_size,
+            3.0 * pixel_size,
+            2.0 * pixel_size,
+            Color::new(0.9, 0.8, 0.7, 1.0),
+        );
+
+        // Eyes (glowing red)
+        draw_rectangle(
+            x - 1.0 * pixel_size,
+            y - 3.5 * pixel_size,
+            pixel_size * 0.5,
+            pixel_size * 0.5,
+            Color::new(1.0, 0.2, 0.2, 1.0),
+        );
+        draw_rectangle(
+            x + 0.5 * pixel_size,
+            y - 3.5 * pixel_size,
+            pixel_size * 0.5,
+            pixel_size * 0.5,
+            Color::new(1.0, 0.2, 0.2, 1.0),
+        );
+
+        // Cape (dark red)
+        if facing.cos() > 0.0 {
+            // Facing right
+            draw_rectangle(
+                x - 3.0 * pixel_size,
+                y - 2.0 * pixel_size,
+                2.0 * pixel_size,
+                4.0 * pixel_size,
+                Color::new(0.3, 0.0, 0.0, 1.0),
+            );
+        } else {
+            // Facing left
+            draw_rectangle(
+                x + 1.0 * pixel_size,
+                y - 2.0 * pixel_size,
+                2.0 * pixel_size,
+                4.0 * pixel_size,
+                Color::new(0.3, 0.0, 0.0, 1.0),
+            );
+        }
+
+        // Fangs
+        draw_rectangle(
+            x - 0.5 * pixel_size,
+            y - 2.5 * pixel_size,
+            pixel_size * 0.3,
+            pixel_size * 0.5,
+            WHITE,
+        );
+        draw_rectangle(
+            x + 0.2 * pixel_size,
+            y - 2.5 * pixel_size,
+            pixel_size * 0.3,
+            pixel_size * 0.5,
+            WHITE,
+        );
+
+        // Border for visibility
+        draw_rectangle_lines(
+            x - 2.0 * pixel_size,
+            y - 4.0 * pixel_size,
+            4.0 * pixel_size,
+            7.0 * pixel_size,
+            1.0,
+            WHITE,
+        );
+    }
+
+    fn draw_clan_leader_sprite(&self, x: f32, y: f32, size: f32, color: Color) {
+        let pixel_size = size / 10.0;
+
+        // Body
+        draw_rectangle(
+            x - 2.5 * pixel_size,
+            y - 2.0 * pixel_size,
+            5.0 * pixel_size,
+            4.0 * pixel_size,
+            color,
+        );
+
+        // Head
+        draw_rectangle(
+            x - 2.0 * pixel_size,
+            y - 4.0 * pixel_size,
+            4.0 * pixel_size,
+            2.0 * pixel_size,
+            Color::new(0.8, 0.7, 0.6, 1.0),
+        );
+
+        // Crown
+        draw_rectangle(
+            x - 2.5 * pixel_size,
+            y - 5.0 * pixel_size,
+            5.0 * pixel_size,
+            pixel_size,
+            GOLD,
+        );
+        draw_triangle(
+            Vec2::new(x, y - 5.5 * pixel_size),
+            Vec2::new(x - pixel_size, y - 4.5 * pixel_size),
+            Vec2::new(x + pixel_size, y - 4.5 * pixel_size),
+            GOLD,
+        );
+
+        // Eyes
+        draw_rectangle(
+            x - 1.5 * pixel_size,
+            y - 3.5 * pixel_size,
+            pixel_size * 0.5,
+            pixel_size * 0.5,
+            BLACK,
+        );
+        draw_rectangle(
+            x + pixel_size,
+            y - 3.5 * pixel_size,
+            pixel_size * 0.5,
+            pixel_size * 0.5,
+            BLACK,
+        );
+
+        // Weapon/Staff
+        draw_rectangle(
+            x + 3.0 * pixel_size,
+            y - 4.0 * pixel_size,
+            pixel_size * 0.5,
+            6.0 * pixel_size,
+            BROWN,
+        );
+        draw_circle(
+            x + 3.25 * pixel_size,
+            y - 4.5 * pixel_size,
+            pixel_size * 0.8,
+            color,
+        );
+    }
+
+    fn draw_infected_sprite(&self, x: f32, y: f32, size: f32, facing: f32) {
+        let pixel_size = size / 8.0;
+
+        // Twisted body (dark red)
+        draw_rectangle(
+            x - 2.0 * pixel_size,
+            y - 2.0 * pixel_size,
+            4.0 * pixel_size,
+            4.0 * pixel_size,
+            Color::new(0.4, 0.1, 0.1, 1.0),
+        );
+
+        // Deformed head
+        draw_rectangle(
+            x - 1.5 * pixel_size,
+            y - 3.5 * pixel_size,
+            3.0 * pixel_size,
+            1.5 * pixel_size,
+            Color::new(0.5, 0.3, 0.2, 1.0),
+        );
+
+        // Glowing hostile eyes
+        draw_rectangle(
+            x - pixel_size,
+            y - 3.0 * pixel_size,
+            pixel_size * 0.7,
+            pixel_size * 0.7,
+            Color::new(1.0, 0.0, 0.0, 1.0),
+        );
+        draw_rectangle(
+            x + 0.3 * pixel_size,
+            y - 3.0 * pixel_size,
+            pixel_size * 0.7,
+            pixel_size * 0.7,
+            Color::new(1.0, 0.0, 0.0, 1.0),
+        );
+
+        // Claws
+        if facing.cos() > 0.0 {
+            // Facing right
+            for i in 0..3 {
+                draw_rectangle(
+                    x + 2.0 * pixel_size + i as f32 * pixel_size * 0.3,
+                    y - pixel_size + i as f32 * pixel_size * 0.2,
+                    pixel_size * 0.2,
+                    pixel_size,
+                    GRAY,
+                );
+            }
+        } else {
+            // Facing left
+            for i in 0..3 {
+                draw_rectangle(
+                    x - 2.5 * pixel_size - i as f32 * pixel_size * 0.3,
+                    y - pixel_size + i as f32 * pixel_size * 0.2,
+                    pixel_size * 0.2,
+                    pixel_size,
+                    GRAY,
+                );
+            }
+        }
+
+        // Danger X mark
+        draw_line(
+            x - pixel_size,
+            y - pixel_size,
+            x + pixel_size,
+            y + pixel_size,
+            2.0,
+            RED,
+        );
+        draw_line(
+            x + pixel_size,
+            y - pixel_size,
+            x - pixel_size,
+            y + pixel_size,
+            2.0,
+            RED,
+        );
+    }
+
+    fn draw_animal_sprite(&self, x: f32, y: f32, size: f32) {
+        let pixel_size = size / 6.0;
+
+        // Body (brown circle with texture)
+        draw_circle(x, y, size / 2.0, BROWN);
+        draw_circle(x, y, size / 2.5, Color::new(0.4, 0.2, 0.1, 1.0));
+
+        // Ears
+        draw_triangle(
+            Vec2::new(x - pixel_size, y - pixel_size * 1.5),
+            Vec2::new(x - pixel_size * 1.5, y - pixel_size * 2.5),
+            Vec2::new(x - pixel_size * 0.5, y - pixel_size * 2.0),
+            BROWN,
+        );
+        draw_triangle(
+            Vec2::new(x + pixel_size, y - pixel_size * 1.5),
+            Vec2::new(x + pixel_size * 1.5, y - pixel_size * 2.5),
+            Vec2::new(x + pixel_size * 0.5, y - pixel_size * 2.0),
+            BROWN,
+        );
+
+        // Eyes
+        draw_circle(
+            x - pixel_size * 0.5,
+            y - pixel_size * 0.3,
+            pixel_size * 0.3,
+            BLACK,
+        );
+        draw_circle(
+            x + pixel_size * 0.5,
+            y - pixel_size * 0.3,
+            pixel_size * 0.3,
+            BLACK,
+        );
+
+        // Nose
+        draw_circle(x, y + pixel_size * 0.2, pixel_size * 0.2, BLACK);
+
+        // Tail
+        draw_circle(
+            x + pixel_size * 1.8,
+            y + pixel_size * 0.5,
+            pixel_size * 0.4,
+            BROWN,
+        );
+    }
+
+    fn draw_clan_member_sprite(&self, x: f32, y: f32, size: f32, color: Color) {
+        let pixel_size = size / 8.0;
+
+        // Body
+        draw_rectangle(
+            x - 2.0 * pixel_size,
+            y - 2.0 * pixel_size,
+            4.0 * pixel_size,
+            4.0 * pixel_size,
+            color,
+        );
+
+        // Head
+        draw_rectangle(
+            x - 1.5 * pixel_size,
+            y - 3.5 * pixel_size,
+            3.0 * pixel_size,
+            1.5 * pixel_size,
+            Color::new(0.8, 0.7, 0.6, 1.0),
+        );
+
+        // Eyes
+        draw_rectangle(
+            x - pixel_size,
+            y - 3.0 * pixel_size,
+            pixel_size * 0.4,
+            pixel_size * 0.4,
+            BLACK,
+        );
+        draw_rectangle(
+            x + 0.6 * pixel_size,
+            y - 3.0 * pixel_size,
+            pixel_size * 0.4,
+            pixel_size * 0.4,
+            BLACK,
+        );
+
+        // Simple weapon
+        draw_rectangle(
+            x + 2.5 * pixel_size,
+            y - 3.0 * pixel_size,
+            pixel_size * 0.3,
+            4.0 * pixel_size,
+            GRAY,
+        );
     }
 
     fn draw_quick_start_guide(&self) {
@@ -1321,7 +1830,16 @@ impl GameState {
             18.0,
             WHITE,
         );
-        y += 40.0;
+        y += 25.0;
+
+        draw_text(
+            "The game features pixel art graphics and a beautiful starry night sky.",
+            center_x - 230.0,
+            y,
+            16.0,
+            LIGHTGRAY,
+        );
+        y += 35.0;
 
         // Essential controls
         draw_text("ESSENTIAL CONTROLS:", center_x - 100.0, y, 20.0, YELLOW);
@@ -1340,8 +1858,8 @@ impl GameState {
         y += 20.0;
 
         draw_text(
-            "Space - Attack hostile infected (red squares with X)",
-            center_x - 180.0,
+            "Space - Attack hostile infected (red-eyed creatures with claws)",
+            center_x - 200.0,
             y,
             16.0,
             LIGHTGRAY,
@@ -1349,8 +1867,8 @@ impl GameState {
         y += 20.0;
 
         draw_text(
-            "E - Interact with clan leaders (squares with gold crowns)",
-            center_x - 200.0,
+            "E - Interact with clan leaders (pixel warriors with gold crowns)",
+            center_x - 210.0,
             y,
             16.0,
             LIGHTGRAY,
@@ -1380,8 +1898,8 @@ impl GameState {
         y += 20.0;
 
         draw_text(
-            "• Feed on brown circles (animals) for easy blood",
-            center_x - 180.0,
+            "• Feed on small animals (creatures with ears and tails) for easy blood",
+            center_x - 210.0,
             y,
             16.0,
             LIGHTGRAY,
