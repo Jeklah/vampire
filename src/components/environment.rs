@@ -108,7 +108,7 @@ impl BloodParticle {
         draw_circle(
             screen_x,
             screen_y,
-            14.0,                           // Large size for visibility
+            7.0,                            // Half the original size
             Color::new(1.0, 0.0, 0.0, 1.0), // Bright red, fully opaque
         );
     }
