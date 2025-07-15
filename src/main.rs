@@ -24,10 +24,13 @@ async fn main() {
     // Initialize random seed
     rand::srand(macroquad::miniquad::date::now() as u64);
 
+    // Removed "Initializing..." screen for faster startup
+
     // Create game state and systems
     let mut game_state = GameState::new();
     let mut input_handler = InputHandler::new();
-    let renderer = Renderer::new();
+    let font = load_ttf_font("assets/fonts/default.ttf").await.unwrap();
+    let renderer = Renderer::new(font);
 
     let mut last_time = get_time();
 
@@ -38,11 +41,22 @@ async fn main() {
         let delta_time = (current_time - last_time) as f32;
         last_time = current_time;
 
+        // Debug: print delta_time
+        println!("delta_time: {}", delta_time);
+
         // Cap delta time to prevent large jumps
         let delta_time = delta_time.min(1.0 / 30.0);
 
         // Handle input
         input_handler.update();
+
+        // Debug: print when feed/attack keys are pressed
+        if input_handler.is_key_just_pressed(KeyCode::R) {
+            println!("Feed key pressed!");
+        }
+        if input_handler.is_key_just_pressed(KeyCode::Space) {
+            println!("Attack key pressed!");
+        }
 
         // Handle window close
         if is_key_pressed(KeyCode::Q) && is_key_down(KeyCode::LeftControl) {
