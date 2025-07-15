@@ -8,11 +8,25 @@ use macroquad::prelude::*;
 
 pub struct Renderer {
     zoom_level: f32,
+    font: Font,
 }
 
 impl Renderer {
-    pub fn new() -> Self {
-        Self { zoom_level: 1.5 }
+    pub fn new(font: Font) -> Self {
+        Self {
+            zoom_level: 1.5,
+            font,
+        }
+    }
+
+    fn draw_text_with_font(&self, text: &str, x: f32, y: f32, font_size: f32, color: Color) {
+        let params = TextParams {
+            font: Some(&self.font),
+            font_size: font_size as u16,
+            color,
+            ..Default::default()
+        };
+        draw_text_ex(text, x, y, params);
     }
 
     pub fn render(&self, game_state: &GameState) {
@@ -39,6 +53,9 @@ impl Renderer {
 
         // Draw UI
         self.draw_ui(game_state);
+
+        // Draw debug messages
+        self.draw_debug_messages(game_state);
 
         // Draw menus
         if game_state.paused {
@@ -151,18 +168,22 @@ impl Renderer {
         let time_text = format!(
             "Time: {} - Day {}",
             game_state.time.get_time_string(),
-            game_state.time.day_count
+            game_state.time.day_count()
         );
-        draw_text(&time_text, 20.0, 30.0, 24.0, WHITE);
+        self.draw_text_with_font(&time_text, 20.0, 30.0, 24.0, WHITE);
 
         // Day/night indicator
-        let day_text = if game_state.time.is_day {
+        let day_text = if game_state.time.is_day() {
             "DAY"
         } else {
             "NIGHT"
         };
-        let day_color = if game_state.time.is_day { YELLOW } else { BLUE };
-        draw_text(day_text, 20.0, 60.0, 24.0, day_color);
+        let day_color = if game_state.time.is_day() {
+            YELLOW
+        } else {
+            BLUE
+        };
+        self.draw_text_with_font(day_text, 20.0, 60.0, 24.0, day_color);
 
         // Player stats
         if let Some(player) = game_state
@@ -177,7 +198,7 @@ impl Renderer {
                 draw_rectangle(20.0, y_offset, 200.0, 20.0, Color::new(0.3, 0.0, 0.0, 1.0));
                 let health_width = 200.0 * (health.current / health.maximum);
                 draw_rectangle(20.0, y_offset, health_width, 20.0, RED);
-                draw_text("Health", 20.0, y_offset - 5.0, 16.0, WHITE);
+                self.draw_text_with_font("Health", 20.0, y_offset - 5.0, 16.0, WHITE);
                 y_offset += 30.0;
             }
 
@@ -186,51 +207,51 @@ impl Renderer {
                 draw_rectangle(20.0, y_offset, 200.0, 20.0, Color::new(0.0, 0.0, 0.3, 1.0));
                 let blood_width = 200.0 * (blood.current / blood.maximum);
                 draw_rectangle(20.0, y_offset, blood_width, 20.0, BLUE);
-                draw_text("Blood", 20.0, y_offset - 5.0, 16.0, WHITE);
+                self.draw_text_with_font("Blood", 20.0, y_offset - 5.0, 16.0, WHITE);
                 y_offset += 30.0;
             }
 
             // Phase info
-            draw_text(
+            self.draw_text_with_font(
                 &format!("Phase: {:?}", game_state.phase),
                 20.0,
                 y_offset,
-                16.0,
+                18.0,
                 WHITE,
             );
-            y_offset += 20.0;
+            y_offset += 25.0;
 
             // Stats
-            draw_text(
+            self.draw_text_with_font(
                 &format!(
                     "Kills: {} | Feedings: {}",
                     game_state.kills, game_state.feeding_count
                 ),
                 20.0,
                 y_offset,
-                14.0,
-                GRAY,
+                18.0,
+                WHITE,
             );
-            y_offset += 20.0;
+            y_offset += 25.0;
 
             // Objectives
-            draw_text("Objectives:", 20.0, y_offset, 18.0, YELLOW);
+            self.draw_text_with_font("Objectives:", 20.0, y_offset, 18.0, YELLOW);
             y_offset += 25.0;
 
             for objective in &game_state.phase_objectives {
-                draw_text(&format!("• {}", objective), 30.0, y_offset, 14.0, WHITE);
+                self.draw_text_with_font(&format!("• {}", objective), 30.0, y_offset, 14.0, WHITE);
                 y_offset += 18.0;
             }
         }
 
         // Controls
         let controls_y = screen_height() - 100.0;
-        draw_text(
+        self.draw_text_with_font(
             "Controls: WASD=Move, R=Feed, E=Interact, Space=Attack, Tab=Clans, L=Legend, H=Help, Esc=Pause",
             20.0,
             controls_y,
             16.0,
-            LIGHTGRAY,
+            GRAY,
         );
     }
 
@@ -246,8 +267,8 @@ impl Renderer {
         let center_x = screen_width() / 2.0;
         let center_y = screen_height() / 2.0;
 
-        draw_text("PAUSED", center_x - 50.0, center_y - 50.0, 36.0, WHITE);
-        draw_text(
+        self.draw_text_with_font("PAUSED", center_x - 50.0, center_y - 50.0, 36.0, WHITE);
+        self.draw_text_with_font(
             "Press ESC to Resume",
             center_x - 80.0,
             center_y,
@@ -265,28 +286,28 @@ impl Renderer {
             Color::new(0.1, 0.1, 0.2, 0.9),
         );
 
-        draw_text("CLAN RELATIONS", 70.0, 80.0, 24.0, WHITE);
+        self.draw_text_with_font("CLAN RELATIONS", 70.0, 80.0, 24.0, WHITE);
 
         let mut y = 120.0;
         for clan in game_state.clans.values() {
             let status_color = if clan.is_allied { GREEN } else { RED };
 
-            draw_text(&clan.name, 70.0, y, 20.0, WHITE);
-            draw_text(
+            self.draw_text_with_font(&clan.name, 70.0, y, 20.0, WHITE);
+            self.draw_text_with_font(
                 &format!("Leader: {}", clan.leader_name),
                 200.0,
                 y,
                 16.0,
                 GRAY,
             );
-            draw_text(
+            self.draw_text_with_font(
                 &format!("Members: {}", clan.member_count),
                 350.0,
                 y,
                 16.0,
                 GRAY,
             );
-            draw_text(
+            self.draw_text_with_font(
                 &format!("Trust: {:.1}", clan.trust_towards_player),
                 450.0,
                 y,
@@ -295,16 +316,16 @@ impl Renderer {
             );
 
             let status = if clan.is_allied { "Allied" } else { "Neutral" };
-            draw_text(status, 550.0, y, 16.0, status_color);
+            self.draw_text_with_font(status, 550.0, y, 16.0, status_color);
 
             y += 25.0;
         }
 
-        draw_text(
+        self.draw_text_with_font(
             "Press TAB to close",
             70.0,
-            screen_height() - 80.0,
-            16.0,
+            screen_height() - 40.0,
+            18.0,
             LIGHTGRAY,
         );
     }
@@ -320,7 +341,7 @@ impl Renderer {
         );
 
         // Legend title
-        draw_text("LEGEND", screen_width() - 310.0, 80.0, 24.0, WHITE);
+        self.draw_text_with_font("LEGEND", screen_width() - 310.0, 80.0, 24.0, WHITE);
 
         let mut y = 110.0;
         let legend_x = screen_width() - 310.0;
@@ -334,11 +355,11 @@ impl Renderer {
             color_size * 1.5, // Larger for better visibility
             0.0,
         );
-        draw_text(
+        self.draw_text_with_font(
             "Player (You) - Vampire with red cape",
             legend_x + text_offset,
-            y + 12.0,
-            14.0,
+            y,
+            16.0,
             WHITE,
         );
         y += 25.0;
@@ -586,15 +607,15 @@ impl Renderer {
             && screen_y > -50.0
             && screen_y < screen_height() + 50.0
         {
-            let moon_size = if game_state.time.is_day { 22.0 } else { 38.0 }; // Larger for zoom
-            let moon_alpha = if game_state.time.is_day {
+            let moon_size = if game_state.time.is_day() { 22.0 } else { 38.0 }; // Larger for zoom
+            let moon_alpha = if game_state.time.is_day() {
                 0.2
             } else {
                 game_state.moon.glow_intensity
             };
 
             // Moon glow
-            if !game_state.time.is_day {
+            if !game_state.time.is_day() {
                 draw_circle(
                     screen_x,
                     screen_y,
@@ -612,7 +633,7 @@ impl Renderer {
             );
 
             // Moon craters for detail
-            if !game_state.time.is_day {
+            if !game_state.time.is_day() {
                 draw_circle(
                     screen_x - 6.0,
                     screen_y - 4.0,
@@ -646,7 +667,7 @@ impl Renderer {
                 && screen_y > -10.0
                 && screen_y < screen_height() + 10.0
             {
-                let alpha = star.brightness * if game_state.time.is_day { 0.1 } else { 1.0 };
+                let alpha = star.brightness * if game_state.time.is_day() { 0.1 } else { 1.0 };
                 draw_circle(screen_x, screen_y, 1.5, Color::new(1.0, 1.0, 0.9, alpha));
                 // Slightly larger stars
             }
@@ -995,7 +1016,7 @@ impl Renderer {
         let mut y = 80.0;
 
         // Title
-        draw_text(
+        self.draw_text_with_font(
             "VAMPIRE RPG - QUICK START GUIDE",
             center_x - 200.0,
             y,
@@ -1005,7 +1026,7 @@ impl Renderer {
         y += 60.0;
 
         // Story intro
-        draw_text(
+        self.draw_text_with_font(
             "You are the sole survivor of a viral outbreak that created vampires.",
             center_x - 250.0,
             y,
@@ -1014,7 +1035,7 @@ impl Renderer {
         );
         y += 25.0;
 
-        draw_text(
+        self.draw_text_with_font(
             "You must survive, adapt, and eventually rule the savage clans.",
             center_x - 220.0,
             y,
@@ -1023,7 +1044,7 @@ impl Renderer {
         );
         y += 25.0;
 
-        draw_text(
+        self.draw_text_with_font(
             "The game features pixel art graphics, ground terrain, and a starry night sky.",
             center_x - 240.0,
             y,
@@ -1033,13 +1054,13 @@ impl Renderer {
         y += 35.0;
 
         // Essential controls
-        draw_text("ESSENTIAL CONTROLS:", center_x - 100.0, y, 20.0, YELLOW);
+        self.draw_text_with_font("ESSENTIAL CONTROLS:", center_x - 100.0, y, 20.0, YELLOW);
         y += 30.0;
 
-        draw_text("WASD - Move around", center_x - 150.0, y, 16.0, LIGHTGRAY);
+        self.draw_text_with_font("WASD - Move around", center_x - 150.0, y, 16.0, LIGHTGRAY);
         y += 20.0;
 
-        draw_text(
+        self.draw_text_with_font(
             "R - Feed on animals and enemies (restores blood & health)",
             center_x - 200.0,
             y,
@@ -1048,7 +1069,7 @@ impl Renderer {
         );
         y += 20.0;
 
-        draw_text(
+        self.draw_text_with_font(
             "Space - Attack hostile infected (red-eyed creatures with claws)",
             center_x - 200.0,
             y,
@@ -1057,7 +1078,7 @@ impl Renderer {
         );
         y += 20.0;
 
-        draw_text(
+        self.draw_text_with_font(
             "E - Interact with clan leaders (pixel warriors with gold crowns)",
             center_x - 210.0,
             y,
@@ -1067,10 +1088,10 @@ impl Renderer {
         y += 30.0;
 
         // Survival tips
-        draw_text("SURVIVAL TIPS:", center_x - 70.0, y, 20.0, YELLOW);
+        self.draw_text_with_font("SURVIVAL TIPS:", center_x - 70.0, y, 20.0, YELLOW);
         y += 30.0;
 
-        draw_text(
+        self.draw_text_with_font(
             "• Keep your BLOOD meter above 20% or you'll take damage",
             center_x - 200.0,
             y,
@@ -1079,7 +1100,7 @@ impl Renderer {
         );
         y += 20.0;
 
-        draw_text(
+        self.draw_text_with_font(
             "• Avoid sunlight during DAY - it damages you significantly",
             center_x - 200.0,
             y,
@@ -1088,7 +1109,7 @@ impl Renderer {
         );
         y += 20.0;
 
-        draw_text(
+        self.draw_text_with_font(
             "• Feed on small animals (creatures with ears and tails) on the ground",
             center_x - 200.0,
             y,
@@ -1097,7 +1118,7 @@ impl Renderer {
         );
         y += 20.0;
 
-        draw_text(
+        self.draw_text_with_font(
             "• Build trust with clan leaders by repeatedly pressing E near them",
             center_x - 220.0,
             y,
@@ -1106,7 +1127,7 @@ impl Renderer {
         );
         y += 20.0;
 
-        draw_text(
+        self.draw_text_with_font(
             "• Your abilities improve each time you feed",
             center_x - 160.0,
             y,
@@ -1115,7 +1136,7 @@ impl Renderer {
         );
         y += 20.0;
 
-        draw_text(
+        self.draw_text_with_font(
             "• Walk on varied ground terrain (grass, dirt, stone)",
             center_x - 170.0,
             y,
@@ -1125,7 +1146,7 @@ impl Renderer {
         y += 40.0;
 
         // Legend reference
-        draw_text(
+        self.draw_text_with_font(
             "Press L for detailed LEGEND • Press Tab for CLAN RELATIONS",
             center_x - 200.0,
             y,
@@ -1135,18 +1156,37 @@ impl Renderer {
         y += 40.0;
 
         // Close instructions
-        draw_text(
+        self.draw_text_with_font(
             "Press H to toggle this guide • Start moving (WASD) to begin!",
             center_x - 200.0,
             y,
             18.0,
-            GREEN,
+            WHITE,
         );
     }
-}
 
-impl Default for Renderer {
-    fn default() -> Self {
-        Self::new()
+    fn draw_debug_messages(&self, game_state: &GameState) {
+        let right_margin = 20.0;
+        let debug_x = screen_width() - 400.0 - right_margin;
+        let mut debug_y = 50.0;
+
+        // Draw background for debug messages
+        draw_rectangle(
+            debug_x - 10.0,
+            debug_y - 30.0,
+            410.0,
+            (game_state.debug_messages.len() as f32 * 18.0) + 40.0,
+            Color::new(0.0, 0.0, 0.0, 0.7),
+        );
+
+        // Draw title
+        self.draw_text_with_font("DEBUG LOG", debug_x, debug_y, 16.0, YELLOW);
+        debug_y += 25.0;
+
+        // Draw messages
+        for message in &game_state.debug_messages {
+            self.draw_text_with_font(message, debug_x, debug_y, 12.0, WHITE);
+            debug_y += 18.0;
+        }
     }
 }

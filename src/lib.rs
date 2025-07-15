@@ -7,6 +7,7 @@ pub mod components;
 pub mod game_state;
 pub mod input;
 pub mod rendering;
+pub mod systems;
 
 // Re-export commonly used types for convenience
 pub use components::{
@@ -19,6 +20,10 @@ pub use components::{
 pub use game_state::GameState;
 pub use input::InputHandler;
 pub use rendering::Renderer;
+pub use systems::{
+    AISystem, BloodStatus, BloodSystem, ObjectiveProgress, ObjectivesSystem, PlayerStatus,
+    PlayerSystem, TimeSystem, WorldSystem,
+};
 
 // Common imports for external use
 pub use macroquad::prelude::*;

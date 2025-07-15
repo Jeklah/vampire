@@ -84,8 +84,8 @@ impl BloodParticle {
             y,
             velocity_x: rand::gen_range(-30.0, 30.0),
             velocity_y: rand::gen_range(-50.0, -10.0),
-            life: 1.0,
-            max_life: 1.0,
+            life: 100.0,
+            max_life: 100.0,
             size: rand::gen_range(1.0, 3.0),
         }
     }
@@ -94,7 +94,7 @@ impl BloodParticle {
         self.x += self.velocity_x * delta_time;
         self.y += self.velocity_y * delta_time;
         self.velocity_y += 98.0 * delta_time; // Gravity
-        self.life -= delta_time * 2.0; // Fade over time
+        self.life -= delta_time * 0.8; // Fade over time (slower for longer effect)
         self.life > 0.0
     }
 
@@ -104,11 +104,12 @@ impl BloodParticle {
         let screen_y = self.y * zoom_level + camera_offset_y;
         let alpha = self.life / self.max_life;
 
+        // Make particles large and bright red for debugging visibility
         draw_circle(
             screen_x,
             screen_y,
-            self.size * zoom_level,
-            Color::new(0.8, 0.1, 0.1, alpha),
+            14.0,                           // Large size for visibility
+            Color::new(1.0, 0.0, 0.0, 1.0), // Bright red, fully opaque
         );
     }
 }

@@ -24,10 +24,13 @@ async fn main() {
     // Initialize random seed
     rand::srand(macroquad::miniquad::date::now() as u64);
 
+    // Removed "Initializing..." screen for faster startup
+
     // Create game state and systems
     let mut game_state = GameState::new();
     let mut input_handler = InputHandler::new();
-    let renderer = Renderer::new();
+    let font = load_ttf_font("assets/fonts/default.ttf").await.unwrap();
+    let renderer = Renderer::new(font);
 
     let mut last_time = get_time();
 
