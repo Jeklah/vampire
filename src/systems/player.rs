@@ -235,12 +235,10 @@ impl PlayerSystem {
         player_id: u32,
         game_time: f32,
     ) -> Option<Position> {
-        println!("Attempting to attack...");
         let player_index = entities.iter().position(|e| e.id == player_id);
         let player_pos = if let Some(idx) = player_index {
             entities[idx].position
         } else {
-            println!("No player entity found for attack!");
             return None;
         };
 

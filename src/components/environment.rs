@@ -91,19 +91,10 @@ impl BloodParticle {
     }
 
     pub fn update(&mut self, delta_time: f32) -> bool {
-        println!(
-            "BloodParticle update: life before = {}, delta_time = {}",
-            self.life, delta_time
-        );
         self.x += self.velocity_x * delta_time;
         self.y += self.velocity_y * delta_time;
         self.velocity_y += 98.0 * delta_time; // Gravity
         self.life -= delta_time * 0.8; // Fade over time (slower for longer effect)
-        println!(
-            "BloodParticle update: life after = {} (will keep? {})",
-            self.life,
-            self.life > 0.0
-        );
         self.life > 0.0
     }
 

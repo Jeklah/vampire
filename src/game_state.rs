@@ -103,16 +103,7 @@ impl GameState {
         // Update game time
         self.game_time += delta_time;
 
-        // Debug: print all entities' type, position, and health at start of each frame
-        println!("--- Entities at start of frame ---");
-        for entity in &self.entities {
-            let health = entity.health.as_ref().map(|h| h.current).unwrap_or(-1.0);
-            println!(
-                "Entity: {:?}, Pos: ({:.1}, {:.1}), Health: {}",
-                entity.entity_type, entity.position.x, entity.position.y, health
-            );
-        }
-        println!("----------------------------------");
+        // Entity debugging removed - now handled by in-game debug log
 
         // System updates in order of dependency
         self.update_time_system(delta_time);

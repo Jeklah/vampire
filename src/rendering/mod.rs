@@ -32,12 +32,6 @@ impl Renderer {
     pub fn render(&self, game_state: &GameState) {
         clear_background(Color::new(0.05, 0.05, 0.15, 1.0)); // Dark blue night sky
 
-        // Debug: print blood_particles count
-        println!(
-            "Blood particles count: {}",
-            game_state.blood_particles.len()
-        );
-
         // Calculate camera offset with zoom
         let camera_offset_x = screen_width() / 2.0 - game_state.camera_x * self.zoom_level;
         let camera_offset_y = screen_height() / 2.0 - game_state.camera_y * self.zoom_level;

@@ -41,22 +41,11 @@ async fn main() {
         let delta_time = (current_time - last_time) as f32;
         last_time = current_time;
 
-        // Debug: print delta_time
-        println!("delta_time: {}", delta_time);
-
         // Cap delta time to prevent large jumps
         let delta_time = delta_time.min(1.0 / 30.0);
 
         // Handle input
         input_handler.update();
-
-        // Debug: print when feed/attack keys are pressed
-        if input_handler.is_key_just_pressed(KeyCode::R) {
-            println!("Feed key pressed!");
-        }
-        if input_handler.is_key_just_pressed(KeyCode::Space) {
-            println!("Attack key pressed!");
-        }
 
         // Handle window close
         if is_key_pressed(KeyCode::Q) && is_key_down(KeyCode::LeftControl) {
