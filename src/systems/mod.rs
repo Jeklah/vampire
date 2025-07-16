@@ -8,6 +8,7 @@ pub mod ai;
 pub mod blood;
 pub mod objectives;
 pub mod player;
+pub mod shelter;
 pub mod time;
 pub mod world;
 
@@ -16,6 +17,7 @@ pub use ai::AISystem;
 pub use blood::BloodSystem;
 pub use objectives::ObjectivesSystem;
 pub use player::PlayerSystem;
+pub use shelter::ShelterSystem;
 pub use time::TimeSystem;
 pub use world::WorldSystem;
 
@@ -23,15 +25,17 @@ pub use world::WorldSystem;
 pub use blood::{ActivityLevel, BloodStatus, SurvivalScore};
 pub use objectives::ObjectiveProgress;
 pub use player::{ExperienceType, PlayerAction, PlayerStatus};
+pub use shelter::ShelterInfo;
 
 /// System update order for consistent game logic
 pub enum SystemUpdateOrder {
     Input = 0,
     Player = 1,
     AI = 2,
-    Blood = 3,
-    Time = 4,
-    Objectives = 5,
+    Shelter = 3,
+    Blood = 4,
+    Time = 5,
+    Objectives = 6,
 }
 
 /// Trait for systems that need regular updates
