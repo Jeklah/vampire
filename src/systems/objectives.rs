@@ -90,7 +90,7 @@ impl ObjectivesSystem {
         completed_objectives: &mut Vec<String>,
     ) {
         if let Some(player) = entities.iter().find(|e| e.id == player_id) {
-            if let Some(abilities) = &player.abilities {
+            if let Some(abilities) = &player.vampire_abilities {
                 // Basic ability improvement
                 if abilities.strength > 1.0 || abilities.speed > 1.0 {
                     Self::complete_objective(
