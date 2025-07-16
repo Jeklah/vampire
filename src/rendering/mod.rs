@@ -4,15 +4,16 @@
 
 use crate::components::*;
 use crate::game_state::GameState;
+use crate::systems::ShelterSystem;
 use macroquad::prelude::*;
 
 pub struct Renderer {
     zoom_level: f32,
-    font: Font,
+    font: Option<Font>,
 }
 
 impl Renderer {
-    pub fn new(font: Font) -> Self {
+    pub fn new(font: Option<Font>) -> Self {
         Self {
             zoom_level: 1.5,
             font,
@@ -20,13 +21,20 @@ impl Renderer {
     }
 
     fn draw_text_with_font(&self, text: &str, x: f32, y: f32, font_size: f32, color: Color) {
-        let params = TextParams {
-            font: Some(&self.font),
-            font_size: font_size as u16,
-            color,
-            ..Default::default()
-        };
-        draw_text_ex(text, x, y, params);
+        match &self.font {
+            Some(font) => {
+                let params = TextParams {
+                    font: Some(font),
+                    font_size: font_size as u16,
+                    color,
+                    ..Default::default()
+                };
+                draw_text_ex(text, x, y, params);
+            }
+            None => {
+                draw_text(text, x, y, font_size, color);
+            }
+        }
     }
 
     pub fn render(&self, game_state: &GameState) {
@@ -47,6 +55,15 @@ impl Renderer {
         for particle in &game_state.blood_particles {
             particle.draw(camera_offset_x, camera_offset_y);
         }
+
+        // Draw shelters first (behind entities)
+        ShelterSystem::render_shelters(
+            &game_state.entities,
+            camera_offset_x,
+            camera_offset_y,
+            self.zoom_level,
+            false, // Show debug info - could be made configurable
+        );
 
         // Draw all entities
         self.draw_entities(game_state, camera_offset_x, camera_offset_y);
@@ -92,6 +109,7 @@ impl Renderer {
                     EntityType::ClanMember(_) => 24.0,
                     EntityType::HostileInfected => 20.0,
                     EntityType::Animal => 16.0,
+                    EntityType::Shelter => 0.0, // Shelters use their own rendering
                 };
 
                 // Don't draw dead entities
@@ -104,24 +122,33 @@ impl Renderer {
                 // Draw entity with pixel art
                 match entity.entity_type {
                     EntityType::Player => {
-                        self.draw_vampire_sprite(screen_x, screen_y, size, entity.facing_direction);
+                        if let Some(velocity) = &entity.velocity {
+                            let facing_direction = velocity.x.atan2(velocity.y);
+                            self.draw_vampire_sprite(screen_x, screen_y, size, facing_direction);
+                        } else {
+                            self.draw_vampire_sprite(screen_x, screen_y, size, 0.0);
+                        }
                     }
                     EntityType::ClanLeader(_) => {
                         self.draw_clan_leader_sprite(screen_x, screen_y, size, entity.color);
                     }
                     EntityType::HostileInfected => {
-                        self.draw_infected_sprite(
-                            screen_x,
-                            screen_y,
-                            size,
-                            entity.facing_direction,
-                        );
+                        if let Some(velocity) = &entity.velocity {
+                            let facing_direction = velocity.x.atan2(velocity.y);
+                            self.draw_infected_sprite(screen_x, screen_y, size, facing_direction);
+                        } else {
+                            self.draw_infected_sprite(screen_x, screen_y, size, 0.0);
+                        }
                     }
                     EntityType::Animal => {
                         self.draw_animal_sprite(screen_x, screen_y, size);
                     }
                     EntityType::ClanMember(_) => {
                         self.draw_clan_member_sprite(screen_x, screen_y, size, entity.color);
+                    }
+                    EntityType::Shelter => {
+                        // Shelters are rendered separately by the shelter system
+                        continue;
                     }
                 }
 
@@ -141,7 +168,7 @@ impl Renderer {
                     );
 
                     // Health bar
-                    let health_percentage = health.current / health.maximum;
+                    let health_percentage = health.current / health.max;
                     let health_width = bar_width * health_percentage;
                     let health_color = if health_percentage > 0.6 {
                         GREEN
@@ -196,7 +223,7 @@ impl Renderer {
             // Health bar
             if let Some(health) = &player.health {
                 draw_rectangle(20.0, y_offset, 200.0, 20.0, Color::new(0.3, 0.0, 0.0, 1.0));
-                let health_width = 200.0 * (health.current / health.maximum);
+                let health_width = 200.0 * (health.current / health.max);
                 draw_rectangle(20.0, y_offset, health_width, 20.0, RED);
                 self.draw_text_with_font("Health", 20.0, y_offset - 5.0, 16.0, WHITE);
                 y_offset += 30.0;
@@ -233,6 +260,40 @@ impl Renderer {
                 WHITE,
             );
             y_offset += 25.0;
+
+            // Shelter status
+            if game_state.is_player_in_shelter() {
+                let protection = game_state.get_player_shelter_protection();
+                let protection_text =
+                    format!("In Shelter - {}% Protection", (protection * 100.0) as u32);
+                self.draw_text_with_font(&protection_text, 20.0, y_offset, 18.0, GREEN);
+                y_offset += 25.0;
+            } else if game_state.time.is_day() && game_state.time.get_sunlight_intensity() > 0.0 {
+                let danger_text = "EXPOSED TO SUNLIGHT!";
+                self.draw_text_with_font(danger_text, 20.0, y_offset, 18.0, RED);
+                y_offset += 25.0;
+            }
+
+            // Nearby shelters
+            let nearby_shelters = game_state.get_nearby_shelters();
+            if !nearby_shelters.is_empty() {
+                self.draw_text_with_font("Nearby Shelters:", 20.0, y_offset, 16.0, LIGHTGRAY);
+                y_offset += 20.0;
+
+                for (_i, shelter) in nearby_shelters.iter().take(3).enumerate() {
+                    let shelter_text = if shelter.distance <= shelter.shelter_type.discovery_range()
+                    {
+                        format!("F: {}", shelter.get_description())
+                    } else {
+                        format!("? - {:.0}m away", shelter.distance)
+                    };
+
+                    let text_color = if shelter.discovered { WHITE } else { GRAY };
+
+                    self.draw_text_with_font(&shelter_text, 25.0, y_offset, 14.0, text_color);
+                    y_offset += 18.0;
+                }
+            }
 
             // Objectives
             self.draw_text_with_font("Objectives:", 20.0, y_offset, 18.0, YELLOW);
