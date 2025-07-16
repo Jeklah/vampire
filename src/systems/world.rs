@@ -38,6 +38,9 @@ impl WorldSystem {
         // Spawn animals (blood sources)
         Self::spawn_animal_group(entities, next_entity_id, 12);
 
+        // Spawn shelters throughout the world
+        Self::spawn_world_shelters(entities, next_entity_id);
+
         // Initialize environment
         Self::initialize_starfield(stars);
         Self::initialize_moon(moon);
@@ -52,28 +55,28 @@ impl WorldSystem {
         let player = GameEntity {
             id: player_id,
             position: Position { x: 400.0, y: 650.0 },
-            velocity: Velocity { x: 0.0, y: 0.0 },
+            velocity: Some(Velocity { x: 0.0, y: 0.0 }),
+            entity_type: EntityType::Player,
             health: Some(Health {
                 current: 100.0,
-                maximum: 100.0,
+                max: 100.0,
             }),
+            combat_stats: Some(CombatStats::new(25.0, 10.0)),
+            ai_state: AIState::Idle,
             blood_meter: Some(BloodMeter {
                 current: 50.0,
                 maximum: 100.0,
                 drain_rate: 1.0,
             }),
-            abilities: Some(VampireAbilities {
+            vampire_abilities: Some(VampireAbilities {
                 strength: 1.0,
                 speed: 1.0,
                 blood_sense: 0.0,
                 shadow_movement: 0.0,
             }),
-            combat_stats: Some(CombatStats::new(25.0, 10.0)),
-            entity_type: EntityType::Player,
+            shelter: None,
+            shelter_occupancy: Some(ShelterOccupancy::new()),
             color: RED,
-            ai_target: None,
-            ai_state: AIState::Idle,
-            facing_direction: 0.0,
         };
 
         entities.push(player);
@@ -144,19 +147,19 @@ impl WorldSystem {
         let entity = GameEntity {
             id: entity_id,
             position: Position { x, y },
-            velocity: Velocity { x: 0.0, y: 0.0 },
+            velocity: Some(Velocity { x: 0.0, y: 0.0 }),
+            entity_type: EntityType::ClanLeader(clan.to_string()),
             health: Some(Health {
                 current: 120.0,
-                maximum: 120.0,
+                max: 120.0,
             }),
-            blood_meter: None,
-            abilities: None,
             combat_stats: Some(CombatStats::new(30.0, 15.0)),
-            entity_type: EntityType::ClanLeader(clan.to_string()),
-            color,
-            ai_target: None,
             ai_state: AIState::Idle,
-            facing_direction: 0.0,
+            blood_meter: None,
+            vampire_abilities: None,
+            shelter: None,
+            shelter_occupancy: None,
+            color,
         };
 
         entities.push(entity);
@@ -188,19 +191,19 @@ impl WorldSystem {
         let entity = GameEntity {
             id: entity_id,
             position: Position { x, y },
-            velocity: Velocity { x: 0.0, y: 0.0 },
+            velocity: Some(Velocity { x: 0.0, y: 0.0 }),
+            entity_type: EntityType::HostileInfected,
             health: Some(Health {
                 current: 50.0,
-                maximum: 50.0,
+                max: 50.0,
             }),
-            blood_meter: None,
-            abilities: None,
-            combat_stats: Some(CombatStats::new(15.0, 5.0)),
-            entity_type: EntityType::HostileInfected,
-            color: Color::new(0.5, 0.1, 0.1, 1.0),
-            ai_target: None,
+            combat_stats: Some(CombatStats::new(20.0, 8.0)),
             ai_state: AIState::Hostile,
-            facing_direction: 0.0,
+            blood_meter: None,
+            vampire_abilities: None,
+            shelter: None,
+            shelter_occupancy: None,
+            color: DARKGREEN,
         };
 
         entities.push(entity);
@@ -232,19 +235,19 @@ impl WorldSystem {
         let entity = GameEntity {
             id: entity_id,
             position: Position { x, y },
-            velocity: Velocity { x: 0.0, y: 0.0 },
+            velocity: Some(Velocity { x: 0.0, y: 0.0 }),
+            entity_type: EntityType::Animal,
             health: Some(Health {
                 current: 25.0,
-                maximum: 25.0,
+                max: 25.0,
             }),
-            blood_meter: None,
-            abilities: None,
             combat_stats: None,
-            entity_type: EntityType::Animal,
-            color: BROWN,
-            ai_target: None,
             ai_state: AIState::Idle,
-            facing_direction: 0.0,
+            blood_meter: None,
+            vampire_abilities: None,
+            shelter: None,
+            shelter_occupancy: None,
+            color: BROWN,
         };
 
         entities.push(entity);
@@ -309,19 +312,19 @@ impl WorldSystem {
         let entity = GameEntity {
             id: entity_id,
             position: Position { x, y },
-            velocity: Velocity { x: 0.0, y: 0.0 },
+            velocity: Some(Velocity { x: 0.0, y: 0.0 }),
+            entity_type: EntityType::ClanMember(clan_name.to_string()),
             health: Some(Health {
                 current: 80.0,
-                maximum: 80.0,
+                max: 80.0,
             }),
-            blood_meter: None,
-            abilities: None,
-            combat_stats: Some(CombatStats::new(20.0, 8.0)),
-            entity_type: EntityType::ClanMember(clan_name.to_string()),
-            color,
-            ai_target: None,
+            combat_stats: Some(CombatStats::new(15.0, 5.0)),
             ai_state: AIState::Idle,
-            facing_direction: 0.0,
+            blood_meter: None,
+            vampire_abilities: None,
+            shelter: None,
+            shelter_occupancy: None,
+            color,
         };
 
         entities.push(entity);
@@ -332,11 +335,12 @@ impl WorldSystem {
     /// Get spawn bounds for different entity types
     pub fn get_spawn_bounds(entity_type: &EntityType) -> (f32, f32, f32, f32) {
         match entity_type {
-            EntityType::Player => (300.0, 500.0, 600.0, 700.0),
-            EntityType::ClanLeader(_) => (100.0, 900.0, 600.0, 750.0),
-            EntityType::ClanMember(_) => (100.0, 900.0, 600.0, 750.0),
-            EntityType::HostileInfected => (50.0, 1000.0, 610.0, 1100.0),
+            EntityType::Player => (350.0, 450.0, 600.0, 700.0),
+            EntityType::ClanLeader(_) => (200.0, 1200.0, 150.0, 750.0),
+            EntityType::ClanMember(_) => (100.0, 1400.0, 100.0, 800.0),
+            EntityType::HostileInfected => (50.0, 1350.0, 50.0, 850.0),
             EntityType::Animal => (50.0, 1200.0, 610.0, 1150.0),
+            EntityType::Shelter => (0.0, 1600.0, 0.0, 800.0),
         }
     }
 
@@ -355,6 +359,168 @@ impl WorldSystem {
             }
         }
         true
+    }
+
+    /// Spawn shelters throughout the world for vampire protection
+    fn spawn_world_shelters(entities: &mut Vec<GameEntity>, next_entity_id: &mut u32) {
+        use crate::components::{ShelterCondition, ShelterType};
+        use crate::systems::ShelterSystem;
+
+        // Spawn a variety of shelters across the map
+        let shelter_locations = [
+            // Caves - high protection, scattered around edges
+            (
+                200.0,
+                150.0,
+                ShelterType::Cave,
+                Some(ShelterCondition::Good),
+                Some("Ancient Cave"),
+            ),
+            (
+                800.0,
+                100.0,
+                ShelterType::Cave,
+                Some(ShelterCondition::Pristine),
+                Some("Deep Cavern"),
+            ),
+            (
+                1200.0,
+                400.0,
+                ShelterType::Cave,
+                Some(ShelterCondition::Damaged),
+                None,
+            ),
+            // Buildings - medium protection, more central
+            (
+                500.0,
+                300.0,
+                ShelterType::Building,
+                Some(ShelterCondition::Good),
+                Some("Abandoned House"),
+            ),
+            (
+                700.0,
+                500.0,
+                ShelterType::Building,
+                Some(ShelterCondition::Damaged),
+                Some("Old Warehouse"),
+            ),
+            (
+                900.0,
+                250.0,
+                ShelterType::Building,
+                Some(ShelterCondition::Poor),
+                None,
+            ),
+            // Underground bunkers - maximum protection, rare
+            (
+                350.0,
+                600.0,
+                ShelterType::Underground,
+                Some(ShelterCondition::Pristine),
+                Some("Emergency Bunker"),
+            ),
+            (
+                1000.0,
+                700.0,
+                ShelterType::Underground,
+                Some(ShelterCondition::Good),
+                None,
+            ),
+            // Ruins - atmospheric, medium protection
+            (
+                150.0,
+                400.0,
+                ShelterType::Ruins,
+                Some(ShelterCondition::Damaged),
+                Some("Temple Ruins"),
+            ),
+            (
+                650.0,
+                200.0,
+                ShelterType::Ruins,
+                Some(ShelterCondition::Poor),
+                Some("Castle Remains"),
+            ),
+            (
+                1100.0,
+                600.0,
+                ShelterType::Ruins,
+                Some(ShelterCondition::Good),
+                None,
+            ),
+            // Sheds - common, lower protection
+            (
+                450.0,
+                450.0,
+                ShelterType::Shed,
+                Some(ShelterCondition::Good),
+                None,
+            ),
+            (
+                750.0,
+                350.0,
+                ShelterType::Shed,
+                Some(ShelterCondition::Damaged),
+                None,
+            ),
+            (
+                550.0,
+                650.0,
+                ShelterType::Shed,
+                Some(ShelterCondition::Good),
+                None,
+            ),
+            // Tree cover - temporary protection, natural
+            (
+                300.0,
+                500.0,
+                ShelterType::TreeCover,
+                Some(ShelterCondition::Good),
+                Some("Dense Grove"),
+            ),
+            (
+                850.0,
+                450.0,
+                ShelterType::TreeCover,
+                Some(ShelterCondition::Good),
+                None,
+            ),
+            (
+                1150.0,
+                200.0,
+                ShelterType::TreeCover,
+                Some(ShelterCondition::Damaged),
+                None,
+            ),
+            // Bridge underpasses - urban shelter
+            (
+                600.0,
+                400.0,
+                ShelterType::BridgeUnderpass,
+                Some(ShelterCondition::Good),
+                Some("Highway Underpass"),
+            ),
+            (
+                950.0,
+                550.0,
+                ShelterType::BridgeUnderpass,
+                Some(ShelterCondition::Damaged),
+                None,
+            ),
+        ];
+
+        for (x, y, shelter_type, condition, name) in shelter_locations.iter() {
+            ShelterSystem::spawn_shelter(
+                entities,
+                next_entity_id,
+                shelter_type.clone(),
+                *x,
+                *y,
+                condition.clone(),
+                name.map(|s| s.to_string()),
+            );
+        }
     }
 
     /// Find a safe spawn position for an entity type
@@ -422,16 +588,16 @@ mod tests {
         let entities = vec![GameEntity {
             id: 0,
             position: Position { x: 100.0, y: 100.0 },
-            velocity: Velocity { x: 0.0, y: 0.0 },
-            health: None,
-            blood_meter: None,
-            abilities: None,
-            combat_stats: None,
+            velocity: Some(Velocity { x: 0.0, y: 0.0 }),
             entity_type: EntityType::Animal,
-            color: WHITE,
-            ai_target: None,
+            health: None,
+            combat_stats: None,
             ai_state: AIState::Idle,
-            facing_direction: 0.0,
+            blood_meter: None,
+            vampire_abilities: None,
+            shelter: None,
+            shelter_occupancy: None,
+            color: WHITE,
         }];
 
         // Position too close should be invalid
