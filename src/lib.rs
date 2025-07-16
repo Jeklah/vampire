@@ -15,6 +15,7 @@ pub use components::{
     entities::{GameEntity, Health, Position, Velocity},
     environment::{BloodParticle, GroundTile, Moon, Star, TileType},
     game_data::{Clan, EntityType, GamePhase},
+    shelter::{Shelter, ShelterCondition, ShelterOccupancy, ShelterType},
     vampire::{BloodMeter, VampireAbilities},
 };
 pub use game_state::GameState;
@@ -22,7 +23,7 @@ pub use input::InputHandler;
 pub use rendering::Renderer;
 pub use systems::{
     AISystem, BloodStatus, BloodSystem, ObjectiveProgress, ObjectivesSystem, PlayerStatus,
-    PlayerSystem, TimeSystem, WorldSystem,
+    PlayerSystem, ShelterInfo, ShelterSystem, TimeSystem, WorldSystem,
 };
 
 // Common imports for external use
