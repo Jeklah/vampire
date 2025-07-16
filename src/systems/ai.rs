@@ -213,14 +213,15 @@ impl AISystem {
         for update in updates {
             if let Some(entity) = entities.iter_mut().find(|e| e.id == update.entity_id) {
                 // Update velocity and position
-                entity.velocity = update.new_velocity;
-                entity.position.x += entity.velocity.x * (1.0 / 60.0); // Assume 60 FPS
-                entity.position.y += entity.velocity.y * (1.0 / 60.0);
+                entity.velocity = Some(update.new_velocity);
+                if let Some(velocity) = &entity.velocity {
+                    entity.position.x += velocity.x * (1.0 / 60.0); // Assume 60 FPS
+                    entity.position.y += velocity.y * (1.0 / 60.0);
+                }
 
                 // Update facing direction
-                if let Some(facing) = update.new_facing_direction {
-                    entity.facing_direction = facing;
-                }
+                // Note: facing_direction field removed from GameEntity
+                // Facing direction now calculated from velocity when needed
 
                 // Keep entities within world bounds
                 entity.position.x = entity.position.x.clamp(0.0, 1600.0);
@@ -231,17 +232,21 @@ impl AISystem {
                     EntityType::HostileInfected => {
                         if update.should_attack {
                             entity.ai_state = AIState::Hostile;
-                        } else if entity.velocity.x.abs() > 0.1 || entity.velocity.y.abs() > 0.1 {
-                            entity.ai_state = AIState::Hostile;
-                        } else {
-                            entity.ai_state = AIState::Idle;
+                        } else if let Some(velocity) = &entity.velocity {
+                            if velocity.x.abs() > 0.1 || velocity.y.abs() > 0.1 {
+                                entity.ai_state = AIState::Hostile;
+                            } else {
+                                entity.ai_state = AIState::Idle;
+                            }
                         }
                     }
                     EntityType::Animal => {
-                        if entity.velocity.x.abs() > 0.1 || entity.velocity.y.abs() > 0.1 {
-                            entity.ai_state = AIState::Fleeing;
-                        } else {
-                            entity.ai_state = AIState::Idle;
+                        if let Some(velocity) = &entity.velocity {
+                            if velocity.x.abs() > 0.1 || velocity.y.abs() > 0.1 {
+                                entity.ai_state = AIState::Fleeing;
+                            } else {
+                                entity.ai_state = AIState::Idle;
+                            }
                         }
                     }
                     _ => {
@@ -371,19 +376,19 @@ mod tests {
         GameEntity {
             id,
             position: Position { x: 100.0, y: 100.0 },
-            velocity: Velocity { x: 0.0, y: 0.0 },
+            velocity: Some(Velocity { x: 0.0, y: 0.0 }),
+            entity_type,
             health: Some(Health {
                 current: 50.0,
-                maximum: 50.0,
+                max: 50.0,
             }),
-            blood_meter: None,
-            abilities: None,
-            combat_stats: Some(CombatStats::new(15.0, 5.0)),
-            entity_type,
-            color: RED,
-            ai_target: None,
+            combat_stats: Some(CombatStats::new(10.0, 5.0)),
             ai_state,
-            facing_direction: 0.0,
+            blood_meter: None,
+            vampire_abilities: None,
+            shelter: None,
+            shelter_occupancy: None,
+            color: WHITE,
         }
     }
 
