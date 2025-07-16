@@ -65,7 +65,7 @@ impl PlayerSystem {
             // Calculate speed with ability modifiers
             let base_speed = 130.0;
             let ability_speed_modifier = player
-                .abilities
+                .vampire_abilities
                 .as_ref()
                 .map(|abilities| abilities.speed)
                 .unwrap_or(1.0);
@@ -76,17 +76,20 @@ impl PlayerSystem {
             let final_speed = base_speed * ability_speed_modifier * sunlight_penalty;
 
             // Update velocity
-            player.velocity.x = move_x * final_speed;
-            player.velocity.y = move_y * final_speed;
+            if let Some(velocity) = &mut player.velocity {
+                velocity.x = move_x * final_speed;
+                velocity.y = move_y * final_speed;
+            }
 
             // Update position
-            player.position.x += player.velocity.x * delta_time;
-            player.position.y += player.velocity.y * delta_time;
+            if let Some(velocity) = &player.velocity {
+                player.position.x += velocity.x * delta_time;
+                player.position.y += velocity.y * delta_time;
+            }
 
             // Update facing direction
-            if player.velocity.x.abs() > 0.1 || player.velocity.y.abs() > 0.1 {
-                player.facing_direction = player.velocity.y.atan2(player.velocity.x);
-            }
+            // Facing direction calculation removed as field no longer exists
+            // Direction is now calculated from velocity when needed for rendering
 
             // Keep player within world bounds
             player.position.x = player.position.x.clamp(0.0, 1600.0);
@@ -171,7 +174,7 @@ impl PlayerSystem {
                 }
                 if let Some(player_health) = &mut first.health {
                     player_health.current =
-                        (player_health.current + blood_amount * 0.2).min(player_health.maximum);
+                        (player_health.current + blood_amount * 0.2).min(player_health.max);
                 }
                 debug_messages.push(format!(
                     "Feeding successful! Returning target position: ({}, {})",
@@ -213,11 +216,11 @@ impl PlayerSystem {
 
             // Heal player
             if let Some(health) = &mut player.health {
-                health.current = (health.current + blood_gained * 0.3).min(health.maximum);
+                health.current = (health.current + blood_gained * 0.3).min(health.max);
             }
 
             // Improve abilities
-            if let Some(abilities) = &mut player.abilities {
+            if let Some(abilities) = &mut player.vampire_abilities {
                 abilities.strength += 0.01;
                 abilities.speed += 0.005;
                 abilities.blood_sense += 0.02;
@@ -403,9 +406,9 @@ impl PlayerSystem {
             .map(|player| PlayerStatus {
                 health: player.health.clone(),
                 blood_meter: player.blood_meter.clone(),
-                abilities: player.abilities.clone(),
+                abilities: player.vampire_abilities.clone(),
                 position: player.position,
-                facing_direction: player.facing_direction,
+                facing_direction: 0.0, // Default facing direction
                 is_alive: player.health.as_ref().map_or(false, |h| h.current > 0.0),
             })
     }
@@ -462,7 +465,7 @@ impl PlayerSystem {
         experience_type: ExperienceType,
     ) {
         if let Some(player) = entities.iter_mut().find(|e| e.id == player_id) {
-            if let Some(abilities) = &mut player.abilities {
+            if let Some(abilities) = &mut player.vampire_abilities {
                 match experience_type {
                     ExperienceType::Combat => {
                         abilities.strength += 0.05;
@@ -519,28 +522,28 @@ mod tests {
         GameEntity {
             id: 0,
             position: Position { x: 100.0, y: 100.0 },
-            velocity: Velocity { x: 0.0, y: 0.0 },
+            velocity: Some(Velocity { x: 0.0, y: 0.0 }),
+            entity_type: EntityType::Player,
             health: Some(Health {
                 current: 100.0,
-                maximum: 100.0,
+                max: 100.0,
             }),
+            combat_stats: Some(CombatStats::new(25.0, 10.0)),
+            ai_state: AIState::Idle,
             blood_meter: Some(BloodMeter {
                 current: 50.0,
                 maximum: 100.0,
                 drain_rate: 1.0,
             }),
-            abilities: Some(VampireAbilities {
+            vampire_abilities: Some(VampireAbilities {
                 strength: 1.0,
                 speed: 1.0,
                 blood_sense: 0.0,
                 shadow_movement: 0.0,
             }),
-            combat_stats: Some(CombatStats::new(25.0, 10.0)),
-            entity_type: EntityType::Player,
+            shelter: None,
+            shelter_occupancy: None,
             color: RED,
-            ai_target: None,
-            ai_state: AIState::Idle,
-            facing_direction: 0.0,
         }
     }
 
