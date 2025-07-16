@@ -29,7 +29,21 @@ async fn main() {
     // Create game state and systems
     let mut game_state = GameState::new();
     let mut input_handler = InputHandler::new();
-    let font = load_ttf_font("assets/fonts/default.ttf").await.unwrap();
+
+    // Embed font data directly in binary for reliable loading
+    let font_data: &[u8] = include_bytes!("../assets/fonts/default.ttf");
+    let font = match load_ttf_font_from_bytes(font_data) {
+        Ok(font) => {
+            println!("Font loaded successfully from embedded data");
+            Some(font)
+        }
+        Err(e) => {
+            println!("Warning: Could not load embedded font: {}", e);
+            println!("Using default system font");
+            None
+        }
+    };
+
     let renderer = Renderer::new(font);
 
     let mut last_time = get_time();
