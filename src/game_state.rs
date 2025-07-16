@@ -110,6 +110,7 @@ impl GameState {
         self.update_environment(delta_time);
         self.update_player_system(input_handler, delta_time);
         self.update_ai_system(delta_time);
+        self.update_shelter_system(delta_time);
         self.update_blood_system(delta_time);
         self.update_objectives_system();
         self.update_camera();
@@ -184,6 +185,17 @@ impl GameState {
             delta_time,
         );
 
+        // Handle shelter interaction
+        if input_handler.is_key_just_pressed(KeyCode::F) {
+            if let Some(message) = ShelterSystem::handle_player_shelter_interaction(
+                &mut self.entities,
+                self.player_id,
+                self.game_time,
+            ) {
+                self.add_debug_message(format!("Shelter: {}", message));
+            }
+        }
+
         // Handle feeding attempts and update feeding counter
         if input_handler.is_key_just_pressed(KeyCode::R) {
             let mut debug_messages = Vec::new();
@@ -251,6 +263,16 @@ impl GameState {
     /// Update AI system for all NPCs
     fn update_ai_system(&mut self, delta_time: f32) {
         AISystem::update_all_ai(&mut self.entities, self.player_id, delta_time);
+    }
+
+    /// Update shelter system
+    fn update_shelter_system(&mut self, delta_time: f32) {
+        ShelterSystem::update_shelters(
+            &mut self.entities,
+            self.game_time,
+            self.time.get_sunlight_intensity(),
+            delta_time,
+        );
     }
 
     /// Update blood system and related mechanics
@@ -397,6 +419,32 @@ impl GameState {
     /// Get survival statistics
     pub fn get_survival_stats(&self) -> SurvivalScore {
         BloodSystem::calculate_survival_score(self.feeding_count, self.time.day_count(), self.kills)
+    }
+
+    /// Get nearby shelter information for UI display
+    pub fn get_nearby_shelters(&self) -> Vec<ShelterInfo> {
+        ShelterSystem::get_nearby_shelter_info(&self.entities, self.player_id, 200.0)
+    }
+
+    /// Check if player is currently in shelter
+    pub fn is_player_in_shelter(&self) -> bool {
+        if let Some(player) = self.entities.iter().find(|e| e.id == self.player_id) {
+            if let Some(occupancy) = &player.shelter_occupancy {
+                return occupancy.is_in_shelter();
+            }
+        }
+        false
+    }
+
+    /// Get current shelter protection level for player
+    pub fn get_player_shelter_protection(&self) -> f32 {
+        let sunlight_damage = self.time.get_sunlight_intensity() * 100.0;
+        let protected_damage = ShelterSystem::calculate_shelter_protection(
+            &self.entities,
+            self.player_id,
+            sunlight_damage,
+        );
+        1.0 - (protected_damage / sunlight_damage.max(1.0))
     }
 
     /// Find the position of the target entity that would be attacked
