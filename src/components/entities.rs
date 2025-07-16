@@ -43,14 +43,14 @@ impl Velocity {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Health {
     pub current: f32,
-    pub maximum: f32,
+    pub max: f32,
 }
 
 impl Health {
     pub fn new(maximum: f32) -> Self {
         Self {
             current: maximum,
-            maximum,
+            max: maximum,
         }
     }
 
@@ -63,11 +63,11 @@ impl Health {
     }
 
     pub fn heal(&mut self, amount: f32) {
-        self.current = (self.current + amount).min(self.maximum);
+        self.current = (self.current + amount).min(self.max);
     }
 
     pub fn health_percentage(&self) -> f32 {
-        self.current / self.maximum
+        self.current / self.max
     }
 }
 
@@ -76,16 +76,16 @@ impl Health {
 pub struct GameEntity {
     pub id: u32,
     pub position: Position,
-    pub velocity: Velocity,
-    pub health: Option<Health>,
-    pub blood_meter: Option<super::vampire::BloodMeter>,
-    pub abilities: Option<super::vampire::VampireAbilities>,
-    pub combat_stats: Option<super::combat::CombatStats>,
+    pub velocity: Option<Velocity>,
     pub entity_type: super::game_data::EntityType,
-    pub color: Color,
-    pub ai_target: Option<u32>,
+    pub health: Option<Health>,
+    pub combat_stats: Option<super::combat::CombatStats>,
     pub ai_state: super::combat::AIState,
-    pub facing_direction: f32,
+    pub blood_meter: Option<super::vampire::BloodMeter>,
+    pub vampire_abilities: Option<super::vampire::VampireAbilities>,
+    pub shelter: Option<super::shelter::Shelter>,
+    pub shelter_occupancy: Option<super::shelter::ShelterOccupancy>,
+    pub color: Color,
 }
 
 /// Render component for visual representation
