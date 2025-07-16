@@ -22,14 +22,17 @@ impl BloodSystem {
                 // Drain blood over time
                 Self::update_blood_drain(blood_meter, delta_time);
 
-                // Apply sunlight damage to vampires during day
-                if is_day {
-                    Self::apply_sunlight_damage(entity, sunlight_intensity, delta_time);
-                }
+                // Sunlight damage is now handled by the new shelter-aware function
+                // after the main entity loop to avoid borrowing issues
 
                 // Apply starvation damage when blood is low
                 Self::apply_starvation_damage(entity, delta_time);
             }
+        }
+
+        // Apply sunlight damage with shelter protection (separate pass to avoid borrowing issues)
+        if is_day && sunlight_intensity > 0.0 {
+            Self::apply_sunlight_damage_with_shelter(entities, sunlight_intensity, delta_time);
         }
     }
 
@@ -39,11 +42,42 @@ impl BloodSystem {
         blood_meter.current = blood_meter.current.max(0.0);
     }
 
-    /// Apply sunlight damage to vampires
+    /// Apply sunlight damage to vampires (modified to work with shelter system)
     fn apply_sunlight_damage(entity: &mut GameEntity, sunlight_intensity: f32, delta_time: f32) {
         if let Some(health) = &mut entity.health {
-            let damage = 3.0 * sunlight_intensity * delta_time;
-            health.current = (health.current - damage).max(0.0);
+            let base_damage = 3.0 * sunlight_intensity * delta_time;
+            health.current = (health.current - base_damage).max(0.0);
+        }
+    }
+
+    /// Apply sunlight damage with shelter protection consideration
+    pub fn apply_sunlight_damage_with_shelter(
+        entities: &mut Vec<GameEntity>,
+        sunlight_intensity: f32,
+        delta_time: f32,
+    ) {
+        // Collect entity IDs and base damage for entities with blood meters
+        let mut damage_calculations = Vec::new();
+        for entity in entities.iter() {
+            if entity.blood_meter.is_some() && entity.health.is_some() {
+                let base_damage = 3.0 * sunlight_intensity * delta_time;
+                damage_calculations.push((entity.id, base_damage));
+            }
+        }
+
+        // Apply calculated damage
+        for (entity_id, base_damage) in damage_calculations {
+            let protected_damage = crate::systems::ShelterSystem::calculate_shelter_protection(
+                entities,
+                entity_id,
+                base_damage,
+            );
+
+            if let Some(entity) = entities.iter_mut().find(|e| e.id == entity_id) {
+                if let Some(health) = &mut entity.health {
+                    health.current = (health.current - protected_damage).max(0.0);
+                }
+            }
         }
     }
 
@@ -100,23 +134,27 @@ impl BloodSystem {
                 }
             }
             EntityType::ClanMember(_) => {
-                // Clan members provide good blood but at a diplomatic cost
-                if let Some(health) = &target_entity.health {
-                    health.current * 0.7
-                } else {
-                    0.0
-                }
-            }
-            EntityType::ClanLeader(_) => {
-                // Clan leaders provide excellent blood but major consequences
+                // Clan members provide good blood
                 if let Some(health) = &target_entity.health {
                     health.current * 0.8
                 } else {
                     0.0
                 }
             }
+            EntityType::ClanLeader(_) => {
+                // Clan leaders provide excellent blood
+                if let Some(health) = &target_entity.health {
+                    health.current * 1.0
+                } else {
+                    0.0
+                }
+            }
             EntityType::Player => {
-                // Players shouldn't be fed upon in normal gameplay
+                // Players can't feed on themselves
+                0.0
+            }
+            EntityType::Shelter => {
+                // Can't feed on shelters
                 0.0
             }
         }
@@ -145,6 +183,7 @@ impl BloodSystem {
             EntityType::ClanMember(_) => true,
             EntityType::ClanLeader(_) => true,
             EntityType::Player => false, // Players can't feed on themselves
+            EntityType::Shelter => false, // Can't feed on shelters
         }
     }
 
@@ -166,7 +205,7 @@ impl BloodSystem {
         // Heal vampire based on blood consumed
         if let Some(health) = &mut vampire.health {
             let healing = blood_gained * 0.3;
-            health.current = (health.current + healing).min(health.maximum);
+            health.current = (health.current + healing).min(health.max);
         }
 
         // Improve vampire abilities from feeding experience
@@ -180,7 +219,7 @@ impl BloodSystem {
 
     /// Improve vampire abilities based on feeding experience
     fn improve_abilities_from_feeding(vampire: &mut GameEntity, blood_gained: f32) {
-        if let Some(abilities) = &mut vampire.abilities {
+        if let Some(abilities) = &mut vampire.vampire_abilities {
             // Scale improvements based on blood gained
             let improvement_factor = (blood_gained / 100.0).min(1.0);
 
@@ -365,28 +404,28 @@ mod tests {
         GameEntity {
             id: 0,
             position: Position { x: 0.0, y: 0.0 },
-            velocity: Velocity { x: 0.0, y: 0.0 },
+            velocity: Some(Velocity { x: 0.0, y: 0.0 }),
+            entity_type: EntityType::Player,
             health: Some(Health {
                 current: 100.0,
-                maximum: 100.0,
+                max: 100.0,
             }),
+            combat_stats: None,
+            ai_state: AIState::Idle,
             blood_meter: Some(BloodMeter {
                 current: 50.0,
                 maximum: 100.0,
                 drain_rate: 1.0,
             }),
-            abilities: Some(VampireAbilities {
+            vampire_abilities: Some(VampireAbilities {
                 strength: 1.0,
                 speed: 1.0,
                 blood_sense: 0.0,
                 shadow_movement: 0.0,
             }),
-            combat_stats: None,
-            entity_type: EntityType::Player,
+            shelter: None,
+            shelter_occupancy: None,
             color: RED,
-            ai_target: None,
-            ai_state: AIState::Idle,
-            facing_direction: 0.0,
         }
     }
 
@@ -394,19 +433,19 @@ mod tests {
         GameEntity {
             id: 1,
             position: Position { x: 0.0, y: 0.0 },
-            velocity: Velocity { x: 0.0, y: 0.0 },
+            velocity: Some(Velocity { x: 0.0, y: 0.0 }),
+            entity_type: EntityType::Animal,
             health: Some(Health {
                 current: 25.0,
-                maximum: 25.0,
+                max: 25.0,
             }),
-            blood_meter: None,
-            abilities: None,
             combat_stats: None,
-            entity_type: EntityType::Animal,
-            color: BROWN,
-            ai_target: None,
             ai_state: AIState::Idle,
-            facing_direction: 0.0,
+            blood_meter: None,
+            vampire_abilities: None,
+            shelter: None,
+            shelter_occupancy: None,
+            color: BROWN,
         }
     }
 
