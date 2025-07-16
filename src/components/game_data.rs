@@ -22,13 +22,14 @@ impl Default for GamePhase {
 }
 
 /// Entity types for different character categories
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum EntityType {
     Player,
     ClanLeader(String),
     ClanMember(String),
     HostileInfected,
     Animal,
+    Shelter,
 }
 
 /// Clan component for faction management
