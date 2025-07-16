@@ -102,7 +102,7 @@ impl BloodParticle {
         let zoom_level = 1.5;
         let screen_x = self.x * zoom_level + camera_offset_x;
         let screen_y = self.y * zoom_level + camera_offset_y;
-        let alpha = self.life / self.max_life;
+        let _alpha = self.life / self.max_life;
 
         // Make particles large and bright red for debugging visibility
         draw_circle(
