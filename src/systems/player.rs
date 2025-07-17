@@ -63,7 +63,7 @@ impl PlayerSystem {
             }
 
             // Calculate speed with ability modifiers
-            let base_speed = 130.0;
+            let base_speed = 260.0;
             let ability_speed_modifier = player
                 .vampire_abilities
                 .as_ref()
