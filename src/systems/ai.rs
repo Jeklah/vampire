@@ -40,7 +40,7 @@ impl AISystem {
                     }
                 }
                 AIState::Idle => {
-                    if let Some(update) = Self::update_idle_ai(entity, &player_pos) {
+                    if let Some(update) = Self::update_idle_ai(entity, &player_pos, delta_time) {
                         ai_updates.push(update);
                     }
                 }
@@ -51,7 +51,7 @@ impl AISystem {
         }
 
         // Apply AI updates
-        Self::apply_ai_updates(entities, ai_updates);
+        Self::apply_ai_updates(entities, ai_updates, delta_time);
     }
 
     /// Get the player's current position
@@ -66,7 +66,7 @@ impl AISystem {
     fn update_hostile_ai(
         entity: &GameEntity,
         player_pos: &Option<Position>,
-        _delta_time: f32,
+        delta_time: f32,
     ) -> Option<AIUpdate> {
         if let Some(player_pos) = player_pos {
             let distance = Self::calculate_distance(&entity.position, player_pos);
@@ -94,7 +94,7 @@ impl AISystem {
                         player_pos.y - entity.position.y,
                     );
 
-                    let speed = 53.0; // Slightly slower than player
+                    let speed = 106.0; // Slightly slower than player
                     let velocity = Velocity {
                         x: direction.0 * speed,
                         y: direction.1 * speed,
@@ -141,7 +141,7 @@ impl AISystem {
                     entity.position.y - player_pos.y,
                 );
 
-                let speed = 70.0; // Faster when fleeing
+                let speed = 140.0; // Faster when fleeing
                 let velocity = Velocity {
                     x: direction.0 * speed,
                     y: direction.1 * speed,
@@ -171,7 +171,11 @@ impl AISystem {
     }
 
     /// Update idle AI behavior
-    fn update_idle_ai(entity: &GameEntity, player_pos: &Option<Position>) -> Option<AIUpdate> {
+    fn update_idle_ai(
+        entity: &GameEntity,
+        player_pos: &Option<Position>,
+        delta_time: f32,
+    ) -> Option<AIUpdate> {
         if let Some(player_pos) = player_pos {
             let distance = Self::calculate_distance(&entity.position, player_pos);
 
@@ -209,14 +213,14 @@ impl AISystem {
     }
 
     /// Apply AI updates to entities
-    fn apply_ai_updates(entities: &mut Vec<GameEntity>, updates: Vec<AIUpdate>) {
+    fn apply_ai_updates(entities: &mut Vec<GameEntity>, updates: Vec<AIUpdate>, delta_time: f32) {
         for update in updates {
             if let Some(entity) = entities.iter_mut().find(|e| e.id == update.entity_id) {
                 // Update velocity and position
                 entity.velocity = Some(update.new_velocity);
                 if let Some(velocity) = &entity.velocity {
-                    entity.position.x += velocity.x * (1.0 / 60.0); // Assume 60 FPS
-                    entity.position.y += velocity.y * (1.0 / 60.0);
+                    entity.position.x += velocity.x * delta_time;
+                    entity.position.y += velocity.y * delta_time;
                 }
 
                 // Update facing direction
