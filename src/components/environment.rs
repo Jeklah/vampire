@@ -82,8 +82,8 @@ impl BloodParticle {
         Self {
             x,
             y,
-            velocity_x: rand::gen_range(-30.0, 30.0),
-            velocity_y: rand::gen_range(-50.0, -10.0),
+            velocity_x: rand::gen_range(-60.0, 60.0),
+            velocity_y: rand::gen_range(-100.0, -20.0),
             life: 100.0,
             max_life: 100.0,
             size: rand::gen_range(1.0, 3.0),
@@ -129,10 +129,97 @@ pub struct GroundTile {
     pub x: f32,
     pub y: f32,
     pub tile_type: TileType,
+    pub texture_data: TileTextureData,
+}
+
+/// Pre-generated texture data for a ground tile to avoid per-frame random generation
+#[derive(Debug, Clone)]
+pub struct TileTextureData {
+    pub grass_patches: Vec<(f32, f32, f32, f32)>, // x, y, width, height offsets
+    pub dirt_spots: Vec<(f32, f32, f32)>,         // x, y, radius offsets
+    pub stone_blocks: Vec<(f32, f32, f32, f32)>,  // x, y, width, height offsets
 }
 
 impl GroundTile {
     pub fn new(x: f32, y: f32, tile_type: TileType) -> Self {
-        Self { x, y, tile_type }
+        let texture_data = Self::generate_texture_data(&tile_type);
+        Self {
+            x,
+            y,
+            tile_type,
+            texture_data,
+        }
+    }
+
+    /// Pre-generate texture data for this tile type to avoid per-frame random generation
+    fn generate_texture_data(tile_type: &TileType) -> TileTextureData {
+        let mut grass_patches = Vec::new();
+        let mut dirt_spots = Vec::new();
+        let mut stone_blocks = Vec::new();
+
+        match tile_type {
+            TileType::Grass => {
+                // Pre-generate grass patch positions
+                for i in 0..8 {
+                    for j in 0..4 {
+                        let x_offset = (i as f32 * 8.0) + rand::gen_range(-4.0, 4.0);
+                        let y_offset = (j as f32 * 16.0) + rand::gen_range(-4.0, 4.0);
+                        grass_patches.push((x_offset, y_offset, 4.0, 8.0));
+                    }
+                }
+            }
+            TileType::DeadGrass => {
+                // Pre-generate dead grass patch positions
+                for i in 0..6 {
+                    for j in 0..3 {
+                        let x_offset = (i as f32 * 10.0) + rand::gen_range(-4.0, 4.0);
+                        let y_offset = (j as f32 * 20.0) + rand::gen_range(-4.0, 4.0);
+                        grass_patches.push((x_offset, y_offset, 4.0, 8.0));
+                    }
+                }
+            }
+            TileType::Dirt => {
+                // Pre-generate dirt spot positions
+                for _i in 0..12 {
+                    let x_offset = rand::gen_range(0.0, 64.0);
+                    let y_offset = rand::gen_range(0.0, 64.0);
+                    let radius = rand::gen_range(2.0, 4.0);
+                    dirt_spots.push((x_offset, y_offset, radius));
+                }
+            }
+            TileType::Stone => {
+                // Pre-generate stone block positions
+                for i in 0..4 {
+                    for j in 0..4 {
+                        let x_offset = i as f32 * 16.0;
+                        let y_offset = j as f32 * 16.0;
+                        stone_blocks.push((x_offset, y_offset, 12.0, 12.0));
+                    }
+                }
+            }
+        }
+
+        TileTextureData {
+            grass_patches,
+            dirt_spots,
+            stone_blocks,
+        }
+    }
+}
+
+impl TileTextureData {
+    /// Create empty texture data
+    pub fn new() -> Self {
+        Self {
+            grass_patches: Vec::new(),
+            dirt_spots: Vec::new(),
+            stone_blocks: Vec::new(),
+        }
+    }
+}
+
+impl Default for TileTextureData {
+    fn default() -> Self {
+        Self::new()
     }
 }
