@@ -34,12 +34,12 @@ async fn main() {
     let font_data: &[u8] = include_bytes!("../assets/fonts/default.ttf");
     let font = match load_ttf_font_from_bytes(font_data) {
         Ok(font) => {
-            println!("Font loaded successfully from embedded data");
+            game_state.add_debug_message("Font loaded successfully from embedded data".to_string());
             Some(font)
         }
         Err(e) => {
-            println!("Warning: Could not load embedded font: {}", e);
-            println!("Using default system font");
+            game_state.add_debug_message(format!("Warning: Could not load embedded font: {}", e));
+            game_state.add_debug_message("Using default system font".to_string());
             None
         }
     };
