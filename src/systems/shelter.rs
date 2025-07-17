@@ -61,6 +61,7 @@ impl ShelterSystem {
 
         // Look for nearby shelters to enter
         let mut nearest_shelter: Option<(u32, f32, String)> = None;
+        let mut nearby_shelters_found = 0;
 
         for entity in entities.iter() {
             if let Some(shelter) = &entity.shelter {
@@ -69,6 +70,7 @@ impl ShelterSystem {
                 .sqrt();
 
                 if distance <= shelter.shelter_type.discovery_range() {
+                    nearby_shelters_found += 1;
                     let shelter_name = shelter.get_status_text();
 
                     if nearest_shelter.is_none() || distance < nearest_shelter.as_ref().unwrap().1 {
@@ -78,7 +80,7 @@ impl ShelterSystem {
             }
         }
 
-        if let Some((shelter_id, _, shelter_name)) = nearest_shelter {
+        if let Some((shelter_id, distance, shelter_name)) = nearest_shelter {
             // Try to enter the shelter
             if let Some(shelter_entity) = entities.iter_mut().find(|e| e.id == shelter_id) {
                 if let Some(shelter) = &mut shelter_entity.shelter {
@@ -96,14 +98,28 @@ impl ShelterSystem {
                                 }
                             }
 
-                            return Some(format!("Entered {}", shelter_name));
+                            return Some(format!(
+                                "Entered {} (distance: {:.1})",
+                                shelter_name, distance
+                            ));
                         } else {
                             return Some("Shelter is full".to_string());
                         }
                     } else {
-                        return Some("Shelter cannot be entered".to_string());
+                        return Some(format!("Shelter cannot be entered: {}", shelter_name));
                     }
                 }
+            }
+        } else {
+            // No shelters nearby - provide helpful feedback
+            let total_shelters = entities.iter().filter(|e| e.shelter.is_some()).count();
+            if total_shelters == 0 {
+                return Some("No shelters found in the world".to_string());
+            } else {
+                return Some(format!(
+                    "No shelters nearby (found {} shelters in world, {} within discovery range)",
+                    total_shelters, nearby_shelters_found
+                ));
             }
         }
 
