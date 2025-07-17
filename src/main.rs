@@ -13,7 +13,7 @@ fn window_conf() -> Conf {
         window_width: 1280,
         window_height: 720,
         window_resizable: false,
-        fullscreen: false,
+        fullscreen: true,
         sample_count: 4,
         ..Default::default()
     }
@@ -29,6 +29,9 @@ async fn main() {
     // Create game state and systems
     let mut game_state = GameState::new();
     let mut input_handler = InputHandler::new();
+
+    // Track fullscreen state (starts as true based on window_conf)
+    let mut is_fullscreen = true;
 
     // Embed font data directly in binary for reliable loading
     let font_data: &[u8] = include_bytes!("../assets/fonts/default.ttf");
@@ -46,6 +49,9 @@ async fn main() {
 
     let renderer = Renderer::new(font);
 
+    // Add debug message about fullscreen mode
+    game_state.add_debug_message("Game started in fullscreen mode".to_string());
+
     let mut last_time = get_time();
 
     // Main game loop
@@ -60,6 +66,17 @@ async fn main() {
 
         // Handle input
         input_handler.update();
+
+        // Handle fullscreen toggle with F11
+        if is_key_pressed(KeyCode::F11) {
+            is_fullscreen = !is_fullscreen;
+            set_fullscreen(is_fullscreen);
+            if is_fullscreen {
+                game_state.add_debug_message("Switched to fullscreen mode".to_string());
+            } else {
+                game_state.add_debug_message("Switched to windowed mode".to_string());
+            }
+        }
 
         // Handle window close
         if is_key_pressed(KeyCode::Q) && is_key_down(KeyCode::LeftControl) {
