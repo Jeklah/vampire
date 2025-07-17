@@ -10,6 +10,14 @@ use macroquad::prelude::*;
 pub struct Renderer {
     zoom_level: f32,
     font: Option<Font>,
+    performance_mode: bool,
+    last_entity_count: usize,
+    last_tile_count: usize,
+    // Ground rendering cache
+    last_camera_x: f32,
+    last_camera_y: f32,
+    camera_moved_significantly: bool,
+    frame_skip_counter: u32,
 }
 
 impl Renderer {
@@ -17,7 +25,37 @@ impl Renderer {
         Self {
             zoom_level: 1.5,
             font,
+            performance_mode: false,
+            last_entity_count: 0,
+            last_tile_count: 0,
+            last_camera_x: 0.0,
+            last_camera_y: 0.0,
+            camera_moved_significantly: true,
+            frame_skip_counter: 0,
         }
+    }
+
+    pub fn set_performance_mode(&mut self, enabled: bool) {
+        self.performance_mode = enabled;
+    }
+
+    pub fn update_performance_scaling(&mut self, player_velocity: Option<&Velocity>) {
+        // Automatically adjust performance based on movement speed (less aggressive)
+        if let Some(velocity) = player_velocity {
+            let speed = (velocity.x.powi(2) + velocity.y.powi(2)).sqrt();
+            if speed > 300.0 {
+                // Moving very fast - enable performance optimizations
+                self.performance_mode = true;
+            } else if speed < 25.0 {
+                // Moving very slowly or stationary - can afford higher quality
+                self.performance_mode = false;
+            }
+            // Keep current mode if in between to avoid flickering
+        }
+    }
+
+    pub fn performance_mode(&self) -> bool {
+        self.performance_mode
     }
 
     fn draw_text_with_font(&self, text: &str, x: f32, y: f32, font_size: f32, color: Color) {
@@ -37,23 +75,47 @@ impl Renderer {
         }
     }
 
-    pub fn render(&self, game_state: &GameState) {
+    pub fn render(&mut self, game_state: &GameState) {
+        // Auto-adjust performance based on player movement speed
+        if let Some(player) = game_state
+            .entities
+            .iter()
+            .find(|e| matches!(e.entity_type, EntityType::Player))
+        {
+            self.update_performance_scaling(player.velocity.as_ref());
+        }
+
         clear_background(Color::new(0.05, 0.05, 0.15, 1.0)); // Dark blue night sky
 
         // Calculate camera offset with zoom
         let camera_offset_x = screen_width() / 2.0 - game_state.camera_x * self.zoom_level;
         let camera_offset_y = screen_height() / 2.0 - game_state.camera_y * self.zoom_level;
 
-        // Draw ground first (background layer)
-        self.draw_ground(game_state, camera_offset_x, camera_offset_y);
+        // Update camera tracking for performance decisions
+        let camera_delta_x = (game_state.camera_x - self.last_camera_x).abs();
+        let camera_delta_y = (game_state.camera_y - self.last_camera_y).abs();
+        let movement_threshold = 10.0; // Smaller threshold for smoother updates
 
-        // Draw stars and moon
+        self.camera_moved_significantly =
+            camera_delta_x > movement_threshold || camera_delta_y > movement_threshold;
+
+        if self.camera_moved_significantly {
+            self.last_camera_x = game_state.camera_x;
+            self.last_camera_y = game_state.camera_y;
+        }
+
+        // Draw ground with smart caching
+        self.draw_ground_cached(game_state, camera_offset_x, camera_offset_y);
+
+        // Draw stars and moon (always draw but less detail in performance mode)
         self.draw_stars(game_state, camera_offset_x, camera_offset_y);
         self.draw_moon(game_state, camera_offset_x, camera_offset_y);
 
-        // Draw blood particles
-        for particle in &game_state.blood_particles {
-            particle.draw(camera_offset_x, camera_offset_y);
+        // Draw blood particles (reduce count only in extreme performance mode)
+        for (i, particle) in game_state.blood_particles.iter().enumerate() {
+            if !self.performance_mode || i % 3 != 0 {
+                particle.draw(camera_offset_x, camera_offset_y);
+            }
         }
 
         // Draw shelters first (behind entities)
@@ -93,101 +155,137 @@ impl Renderer {
     }
 
     fn draw_entities(&self, game_state: &GameState, camera_offset_x: f32, camera_offset_y: f32) {
+        // Pre-calculate screen bounds for better culling
+        let screen_w = screen_width();
+        let screen_h = screen_height();
+        let cull_margin = if self.performance_mode { 30.0 } else { 50.0 };
+
+        // Calculate camera movement for LOD decisions
+        let camera_speed = ((game_state.camera_x - self.last_camera_x).powi(2)
+            + (game_state.camera_y - self.last_camera_y).powi(2))
+        .sqrt();
+        let skip_details = self.performance_mode || camera_speed > 100.0;
+
+        // Batch entities by type for potential future optimizations
+        let mut visible_entities = Vec::with_capacity(game_state.entities.len());
+
+        // First pass: cull and collect visible entities
         for entity in &game_state.entities {
             let screen_x = entity.position.x * self.zoom_level + camera_offset_x;
             let screen_y = entity.position.y * self.zoom_level + camera_offset_y;
 
-            // Only draw if on screen
-            if screen_x > -40.0
-                && screen_x < screen_width() + 40.0
-                && screen_y > -40.0
-                && screen_y < screen_height() + 40.0
+            // Improved culling with tighter bounds
+            if screen_x > -cull_margin
+                && screen_x < screen_w + cull_margin
+                && screen_y > -cull_margin
+                && screen_y < screen_h + cull_margin
             {
-                let size = match entity.entity_type {
-                    EntityType::Player => 30.0, // Larger for better detail
-                    EntityType::ClanLeader(_) => 28.0,
-                    EntityType::ClanMember(_) => 24.0,
-                    EntityType::HostileInfected => 20.0,
-                    EntityType::Animal => 16.0,
-                    EntityType::Shelter => 0.0, // Shelters use their own rendering
-                };
-
-                // Don't draw dead entities
+                // Skip dead entities early
                 if let Some(health) = &entity.health {
                     if health.current <= 0.0 || matches!(entity.ai_state, AIState::Dead) {
                         continue;
                     }
                 }
 
-                // Draw entity with pixel art
-                match entity.entity_type {
-                    EntityType::Player => {
-                        if let Some(velocity) = &entity.velocity {
-                            let facing_direction = velocity.x.atan2(velocity.y);
-                            self.draw_vampire_sprite(screen_x, screen_y, size, facing_direction);
-                        } else {
-                            self.draw_vampire_sprite(screen_x, screen_y, size, 0.0);
-                        }
-                    }
-                    EntityType::ClanLeader(_) => {
-                        self.draw_clan_leader_sprite(screen_x, screen_y, size, entity.color);
-                    }
-                    EntityType::HostileInfected => {
-                        if let Some(velocity) = &entity.velocity {
-                            let facing_direction = velocity.x.atan2(velocity.y);
-                            self.draw_infected_sprite(screen_x, screen_y, size, facing_direction);
-                        } else {
-                            self.draw_infected_sprite(screen_x, screen_y, size, 0.0);
-                        }
-                    }
-                    EntityType::Animal => {
-                        self.draw_animal_sprite(screen_x, screen_y, size);
-                    }
-                    EntityType::ClanMember(_) => {
-                        self.draw_clan_member_sprite(screen_x, screen_y, size, entity.color);
-                    }
-                    EntityType::Shelter => {
-                        // Shelters are rendered separately by the shelter system
-                        continue;
-                    }
+                // Skip shelter entities (rendered separately)
+                if matches!(entity.entity_type, EntityType::Shelter) {
+                    continue;
                 }
 
-                // Draw health bar if entity has health
-                if let Some(health) = &entity.health {
-                    let bar_width = size;
-                    let bar_height = 6.0; // Slightly thicker for zoom
-                    let bar_y = screen_y - size / 2.0 - 12.0; // More space for zoom
+                visible_entities.push((entity, screen_x, screen_y));
+            }
+        }
 
-                    // Background bar
-                    draw_rectangle(
-                        screen_x - bar_width / 2.0,
-                        bar_y,
-                        bar_width,
-                        bar_height,
-                        Color::new(0.3, 0.0, 0.0, 0.8),
-                    );
+        // Second pass: render visible entities
+        for (entity, screen_x, screen_y) in visible_entities {
+            let size = match entity.entity_type {
+                EntityType::Player => 30.0,
+                EntityType::ClanLeader(_) => 28.0,
+                EntityType::ClanMember(_) => 24.0,
+                EntityType::HostileInfected => 20.0,
+                EntityType::Animal => 16.0,
+                EntityType::Shelter => continue, // Already filtered out
+            };
 
-                    // Health bar
-                    let health_percentage = health.current / health.max;
-                    let health_width = bar_width * health_percentage;
-                    let health_color = if health_percentage > 0.6 {
-                        GREEN
-                    } else if health_percentage > 0.3 {
-                        YELLOW
-                    } else {
-                        RED
-                    };
+            // Draw entity sprite
+            match entity.entity_type {
+                EntityType::Player => {
+                    let facing_direction = entity
+                        .velocity
+                        .as_ref()
+                        .map(|v| v.x.atan2(v.y))
+                        .unwrap_or(0.0);
+                    self.draw_vampire_sprite(screen_x, screen_y, size, facing_direction);
+                }
+                EntityType::ClanLeader(_) => {
+                    self.draw_clan_leader_sprite(screen_x, screen_y, size, entity.color);
+                }
+                EntityType::HostileInfected => {
+                    let facing_direction = entity
+                        .velocity
+                        .as_ref()
+                        .map(|v| v.x.atan2(v.y))
+                        .unwrap_or(0.0);
+                    self.draw_infected_sprite(screen_x, screen_y, size, facing_direction);
+                }
+                EntityType::Animal => {
+                    self.draw_animal_sprite(screen_x, screen_y, size);
+                }
+                EntityType::ClanMember(_) => {
+                    self.draw_clan_member_sprite(screen_x, screen_y, size, entity.color);
+                }
+                EntityType::Shelter => unreachable!(),
+            }
 
-                    draw_rectangle(
-                        screen_x - bar_width / 2.0,
-                        bar_y,
-                        health_width,
-                        bar_height,
-                        health_color,
-                    );
+            // Draw health bar only if not skipping details and entity is close enough
+            if let Some(health) = &entity.health {
+                if !skip_details {
+                    let distance_to_camera = ((entity.position.x - game_state.camera_x).powi(2)
+                        + (entity.position.y - game_state.camera_y).powi(2))
+                    .sqrt();
+
+                    // Only draw health bars for entities within reasonable distance
+                    let health_bar_distance = if self.performance_mode { 150.0 } else { 300.0 };
+                    if distance_to_camera < health_bar_distance {
+                        self.draw_health_bar(screen_x, screen_y, size, health);
+                    }
                 }
             }
         }
+    }
+
+    fn draw_health_bar(&self, screen_x: f32, screen_y: f32, entity_size: f32, health: &Health) {
+        let bar_width = entity_size;
+        let bar_height = 6.0;
+        let bar_y = screen_y - entity_size / 2.0 - 12.0;
+
+        // Background bar
+        draw_rectangle(
+            screen_x - bar_width / 2.0,
+            bar_y,
+            bar_width,
+            bar_height,
+            Color::new(0.3, 0.0, 0.0, 0.8),
+        );
+
+        // Health bar
+        let health_percentage = health.current / health.max;
+        let health_width = bar_width * health_percentage;
+        let health_color = if health_percentage > 0.6 {
+            GREEN
+        } else if health_percentage > 0.3 {
+            YELLOW
+        } else {
+            RED
+        };
+
+        draw_rectangle(
+            screen_x - bar_width / 2.0,
+            bar_y,
+            health_width,
+            bar_height,
+            health_color,
+        );
     }
 
     fn draw_ui(&self, game_state: &GameState) {
@@ -551,44 +649,86 @@ impl Renderer {
         draw_text("Press L to close", legend_x, y, 16.0, YELLOW);
     }
 
-    fn draw_ground(&self, game_state: &GameState, camera_offset_x: f32, camera_offset_y: f32) {
+    fn draw_ground_cached(
+        &mut self,
+        game_state: &GameState,
+        camera_offset_x: f32,
+        camera_offset_y: f32,
+    ) {
+        // Increment frame skip counter
+        self.frame_skip_counter += 1;
+
+        let mut tiles_drawn = 0;
+        let tile_cull_margin = if self.performance_mode { 30.0 } else { 80.0 };
+
+        // Calculate camera movement speed for LOD
+        let camera_speed = ((game_state.camera_x - self.last_camera_x).powi(2)
+            + (game_state.camera_y - self.last_camera_y).powi(2))
+        .sqrt();
+        let is_moving_fast = camera_speed > 150.0;
+
+        // Always draw ground, but vary detail level based on performance conditions
         for tile in &game_state.ground_tiles {
             let screen_x = tile.x * self.zoom_level + camera_offset_x;
             let screen_y = tile.y * self.zoom_level + camera_offset_y;
 
             // Only draw tiles that are visible on screen
-            if screen_x > -100.0
-                && screen_x < screen_width() + 100.0
-                && screen_y > -100.0
-                && screen_y < screen_height() + 100.0
+            if screen_x > -tile_cull_margin
+                && screen_x < screen_width() + tile_cull_margin
+                && screen_y > -tile_cull_margin
+                && screen_y < screen_height() + tile_cull_margin
             {
-                self.draw_ground_tile(screen_x, screen_y, 64.0 * self.zoom_level, &tile.tile_type);
+                // Determine detail level based on performance conditions
+                let distance_from_center = ((screen_x - screen_width() / 2.0).powi(2)
+                    + (screen_y - screen_height() / 2.0).powi(2))
+                .sqrt();
+
+                // Use simple rendering for performance optimization, but always render something
+                let use_simple_rendering =
+                    self.performance_mode || is_moving_fast || distance_from_center > 400.0;
+
+                if use_simple_rendering {
+                    self.draw_simple_ground_tile(
+                        screen_x,
+                        screen_y,
+                        64.0 * self.zoom_level,
+                        &tile.tile_type,
+                    );
+                } else {
+                    self.draw_ground_tile_optimized(
+                        screen_x,
+                        screen_y,
+                        64.0 * self.zoom_level,
+                        tile,
+                    );
+                }
+                tiles_drawn += 1;
             }
         }
+        self.last_tile_count = tiles_drawn;
     }
 
-    fn draw_ground_tile(&self, x: f32, y: f32, size: f32, tile_type: &TileType) {
-        let pixel_size = size / 16.0; // 16x16 pixel tiles
+    fn draw_ground_tile_optimized(&self, x: f32, y: f32, size: f32, tile: &GroundTile) {
+        let scale = size / 64.0;
 
-        match tile_type {
+        match tile.tile_type {
             TileType::Grass => {
                 // Base grass color
                 draw_rectangle(x, y, size, size, Color::new(0.2, 0.4, 0.1, 1.0));
 
-                // Grass texture - small green pixels
-                for i in 0..8 {
-                    for j in 0..4 {
-                        let px = x
-                            + (i as f32 * pixel_size * 2.0)
-                            + rand::gen_range(-pixel_size, pixel_size);
-                        let py = y
-                            + (j as f32 * pixel_size * 4.0)
-                            + rand::gen_range(-pixel_size, pixel_size);
+                // Optimized detail: draw fewer patches for performance
+                for (i, (px_offset, py_offset, width, height)) in
+                    tile.texture_data.grass_patches.iter().enumerate()
+                {
+                    if i % 3 == 0 {
+                        // Draw every 3rd patch for good balance
+                        let px = x + px_offset * scale;
+                        let py = y + py_offset * scale;
                         draw_rectangle(
                             px,
                             py,
-                            pixel_size,
-                            pixel_size * 2.0,
+                            width * scale,
+                            height * scale,
                             Color::new(0.3, 0.6, 0.2, 1.0),
                         );
                     }
@@ -598,20 +738,18 @@ impl Renderer {
                 // Dead grass base
                 draw_rectangle(x, y, size, size, Color::new(0.4, 0.3, 0.1, 1.0));
 
-                // Dead grass texture
-                for i in 0..6 {
-                    for j in 0..3 {
-                        let px = x
-                            + (i as f32 * pixel_size * 2.5)
-                            + rand::gen_range(-pixel_size, pixel_size);
-                        let py = y
-                            + (j as f32 * pixel_size * 5.0)
-                            + rand::gen_range(-pixel_size, pixel_size);
+                // Optimized detail for dead grass
+                for (i, (px_offset, py_offset, width, height)) in
+                    tile.texture_data.grass_patches.iter().enumerate()
+                {
+                    if i % 3 == 0 {
+                        let px = x + px_offset * scale;
+                        let py = y + py_offset * scale;
                         draw_rectangle(
                             px,
                             py,
-                            pixel_size,
-                            pixel_size * 2.0,
+                            width * scale,
+                            height * scale,
                             Color::new(0.5, 0.4, 0.2, 1.0),
                         );
                     }
@@ -621,41 +759,52 @@ impl Renderer {
                 // Base dirt color
                 draw_rectangle(x, y, size, size, Color::new(0.4, 0.2, 0.1, 1.0));
 
-                // Dirt texture - small darker spots
-                for _i in 0..12 {
-                    let px = x + rand::gen_range(0.0, size);
-                    let py = y + rand::gen_range(0.0, size);
-                    draw_circle(px, py, pixel_size * 0.8, Color::new(0.3, 0.15, 0.05, 1.0));
+                // Optimized dirt spots
+                for (i, (px_offset, py_offset, radius)) in
+                    tile.texture_data.dirt_spots.iter().enumerate()
+                {
+                    if i % 2 == 0 {
+                        // Draw every other spot
+                        let px = x + px_offset * scale;
+                        let py = y + py_offset * scale;
+                        draw_circle(px, py, radius * scale, Color::new(0.3, 0.15, 0.05, 1.0));
+                    }
                 }
             }
             TileType::Stone => {
-                // Base stone color
+                // Simplified stone rendering
                 draw_rectangle(x, y, size, size, Color::new(0.5, 0.5, 0.5, 1.0));
 
-                // Stone texture - rectangular patterns
-                for i in 0..4 {
-                    for j in 0..4 {
-                        let px = x + (i as f32 * pixel_size * 4.0);
-                        let py = y + (j as f32 * pixel_size * 4.0);
+                // Optimized stone blocks
+                for (i, (px_offset, py_offset, width, height)) in
+                    tile.texture_data.stone_blocks.iter().enumerate()
+                {
+                    if i % 2 == 0 {
+                        // Draw every other block
+                        let px = x + px_offset * scale;
+                        let py = y + py_offset * scale;
                         draw_rectangle(
                             px,
                             py,
-                            pixel_size * 3.0,
-                            pixel_size * 3.0,
+                            width * scale,
+                            height * scale,
                             Color::new(0.6, 0.6, 0.6, 1.0),
-                        );
-                        draw_rectangle_lines(
-                            px,
-                            py,
-                            pixel_size * 3.0,
-                            pixel_size * 3.0,
-                            1.0,
-                            Color::new(0.4, 0.4, 0.4, 1.0),
                         );
                     }
                 }
             }
         }
+    }
+
+    fn draw_simple_ground_tile(&self, x: f32, y: f32, size: f32, tile_type: &TileType) {
+        // Simplified tile rendering for performance mode
+        let color = match tile_type {
+            TileType::Grass => Color::new(0.2, 0.4, 0.1, 1.0),
+            TileType::DeadGrass => Color::new(0.4, 0.3, 0.1, 1.0),
+            TileType::Dirt => Color::new(0.4, 0.2, 0.1, 1.0),
+            TileType::Stone => Color::new(0.5, 0.5, 0.5, 1.0),
+        };
+        draw_rectangle(x, y, size, size, color);
     }
 
     fn draw_moon(&self, game_state: &GameState, camera_offset_x: f32, camera_offset_y: f32) {
