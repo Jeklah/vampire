@@ -39,6 +39,7 @@ impl InputHandler {
             KeyCode::Space,
             KeyCode::R,
             KeyCode::E,
+            KeyCode::F,
             KeyCode::Escape,
             KeyCode::Tab,
             KeyCode::L,
