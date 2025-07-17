@@ -13,9 +13,8 @@ fn window_conf() -> Conf {
         window_width: 1280,
         window_height: 720,
         window_resizable: false,
-        fullscreen: true,
+        fullscreen: false,
         sample_count: 4,
-        high_dpi: true,
         ..Default::default()
     }
 }
@@ -31,22 +30,8 @@ async fn main() {
     let mut game_state = GameState::new();
     let mut input_handler = InputHandler::new();
 
-    // Track fullscreen state (starts as true based on window_conf)
-    let mut is_fullscreen = true;
-
-    // Performance settings for fullscreen
-    let base_width = 1280.0;
-    let base_height = 720.0;
-    let mut render_scale = if is_fullscreen {
-        // Scale down rendering for better performance in fullscreen
-        let screen_w = screen_width();
-        let screen_h = screen_height();
-        let scale_x = base_width / screen_w;
-        let scale_y = base_height / screen_h;
-        scale_x.max(scale_y).min(1.0) // Never scale up, only down for performance
-    } else {
-        1.0
-    };
+    // Track fullscreen state (starts as false for better cross-platform compatibility)
+    let mut is_fullscreen = false;
 
     // Embed font data directly in binary for reliable loading
     let font_data: &[u8] = include_bytes!("../assets/fonts/default.ttf");
@@ -64,8 +49,9 @@ async fn main() {
 
     let mut renderer = Renderer::new(font);
 
-    // Add debug message about fullscreen mode
-    game_state.add_debug_message("Game started in fullscreen mode".to_string());
+    // Add debug message about window mode
+    game_state
+        .add_debug_message("Game started in windowed mode (F11 to toggle fullscreen)".to_string());
 
     let mut last_time = get_time();
     let mut frame_count = 0;
@@ -124,22 +110,8 @@ async fn main() {
             is_fullscreen = !is_fullscreen;
             set_fullscreen(is_fullscreen);
 
-            // Update render scale based on mode
-            render_scale = if is_fullscreen {
-                let screen_w = screen_width();
-                let screen_h = screen_height();
-                let scale_x = base_width / screen_w;
-                let scale_y = base_height / screen_h;
-                scale_x.max(scale_y).min(1.0)
-            } else {
-                1.0
-            };
-
             if is_fullscreen {
-                game_state.add_debug_message(format!(
-                    "Switched to fullscreen mode (render scale: {:.2})",
-                    render_scale
-                ));
+                game_state.add_debug_message("Switched to fullscreen mode".to_string());
             } else {
                 game_state.add_debug_message("Switched to windowed mode".to_string());
             }
@@ -164,26 +136,8 @@ async fn main() {
         // Update game state
         game_state.update(&input_handler, delta_time);
 
-        // Render the game with performance scaling
-        if render_scale < 1.0 {
-            // Render to a smaller internal resolution for better performance
-            let render_width = (screen_width() * render_scale) as i32;
-            let render_height = (screen_height() * render_scale) as i32;
-
-            // Set render target size
-            set_camera(&Camera2D {
-                target: vec2(0.0, 0.0),
-                zoom: vec2(2.0 / render_width as f32, -2.0 / render_height as f32),
-                ..Default::default()
-            });
-        }
-
+        // Render the game (removed problematic resolution scaling for cross-platform compatibility)
         renderer.render(&game_state);
-
-        if render_scale < 1.0 {
-            // Reset camera
-            set_default_camera();
-        }
 
         // Let macroquad handle frame rate limiting via VSync with next_frame()
         // Remove manual frame limiting to allow 60+ FPS
