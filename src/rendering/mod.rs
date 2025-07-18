@@ -1167,7 +1167,7 @@ impl Renderer {
         // Claws
         if facing.cos() > 0.0 {
             // Facing right
-            for i in 0..3 {
+            (0..3).for_each(|i| {
                 draw_rectangle(
                     x + 2.0 * pixel_size + i as f32 * pixel_size * 0.3,
                     y - pixel_size + i as f32 * pixel_size * 0.2,
@@ -1175,10 +1175,10 @@ impl Renderer {
                     pixel_size,
                     GRAY,
                 );
-            }
+            });
         } else {
             // Facing left
-            for i in 0..3 {
+            (0..3).for_each(|i| {
                 draw_rectangle(
                     x - 2.5 * pixel_size - i as f32 * pixel_size * 0.3,
                     y - pixel_size + i as f32 * pixel_size * 0.2,
@@ -1186,7 +1186,7 @@ impl Renderer {
                     pixel_size,
                     GRAY,
                 );
-            }
+            });
         }
 
         // Danger X mark
