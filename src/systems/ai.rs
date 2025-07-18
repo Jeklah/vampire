@@ -211,7 +211,7 @@ impl AISystem {
 
                 // Keep entities within world bounds
                 entity.position.x = entity.position.x.clamp(0.0, 1600.0);
-                entity.position.y = entity.position.y.clamp(600.0, 1200.0);
+                entity.position.y = entity.position.y.clamp(640.0, 1200.0);
 
                 // Update AI state based on behavior
                 match entity.entity_type {

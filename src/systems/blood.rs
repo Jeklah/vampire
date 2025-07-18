@@ -482,7 +482,7 @@ mod tests {
     fn test_blood_gain_calculation() {
         let animal = create_test_animal();
         let blood_gain = BloodSystem::calculate_blood_gain(&animal);
-        assert_eq!(blood_gain, 15.0); // 25.0 * 0.6
+        assert!((blood_gain - 15.0).abs() < 0.001); // 25.0 * 0.6 with floating point tolerance
     }
 
     #[test]

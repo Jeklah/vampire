@@ -222,6 +222,46 @@ impl ShelterSystem {
         base_sunlight_damage
     }
 
+    /// Check if a position has ground (is within the ground area)
+    pub fn has_ground_at_position(x: f32, y: f32) -> bool {
+        let world_width = 1600.0;
+        let world_height = 1200.0;
+        let ground_level = 640.0; // Ground starts at y = 640 (aligned with tile positions)
+
+        // Check if position is within world bounds and at or below ground level
+        x >= 0.0 && x <= world_width && y >= ground_level && y <= world_height
+    }
+
+    /// Spawn a shelter at the specified location with ground validation
+    pub fn spawn_shelter_safe(
+        entities: &mut Vec<GameEntity>,
+        next_entity_id: &mut u32,
+        shelter_type: ShelterType,
+        x: f32,
+        y: f32,
+        condition: Option<ShelterCondition>,
+        name: Option<String>,
+    ) -> Option<u32> {
+        // Check if the position has ground
+        if !Self::has_ground_at_position(x, y) {
+            eprintln!(
+                "Warning: Cannot spawn shelter at ({}, {}) - no ground at this position",
+                x, y
+            );
+            return None;
+        }
+
+        Some(Self::spawn_shelter(
+            entities,
+            next_entity_id,
+            shelter_type,
+            x,
+            y,
+            condition,
+            name,
+        ))
+    }
+
     /// Spawn a shelter at the specified location
     pub fn spawn_shelter(
         entities: &mut Vec<GameEntity>,
@@ -232,6 +272,14 @@ impl ShelterSystem {
         condition: Option<ShelterCondition>,
         name: Option<String>,
     ) -> u32 {
+        // Warn if spawning on invalid ground
+        if !Self::has_ground_at_position(x, y) {
+            eprintln!(
+                "Warning: Spawning shelter at ({}, {}) where there is no ground",
+                x, y
+            );
+        }
+
         let id = *next_entity_id;
         *next_entity_id += 1;
 
