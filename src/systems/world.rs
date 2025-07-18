@@ -119,7 +119,7 @@ impl WorldSystem {
             "Shadowmere",
             "Flame-Haters",
             600.0,
-            700.0,
+            650.0,
             PURPLE,
         );
         Self::spawn_clan_leader(
@@ -128,7 +128,7 @@ impl WorldSystem {
             "Silentfang",
             "Night-Bloods",
             800.0,
-            620.0,
+            650.0,
             DARKBLUE,
         );
     }
@@ -138,7 +138,58 @@ impl WorldSystem {
         entities: &mut Vec<GameEntity>,
         next_entity_id: &mut u32,
         _name: &str,
-        clan: &str,
+        clan_name: &str,
+        x: f32,
+        y: f32,
+        color: Color,
+    ) -> u32 {
+        // Validate ground position
+        if !Self::has_ground_at_position(x, y) {
+            eprintln!(
+                "Warning: Clan leader '{}' spawning above ground at ({}, {}) - adjusting position",
+                _name, x, y
+            );
+            // Find a safe position using spawn bounds
+            if let Some((safe_x, safe_y)) = Self::find_safe_spawn_position(
+                entities,
+                &EntityType::ClanLeader(clan_name.to_string()),
+                30.0,
+                10,
+            ) {
+                return Self::spawn_clan_leader_at_position(
+                    entities,
+                    next_entity_id,
+                    _name,
+                    clan_name,
+                    safe_x,
+                    safe_y,
+                    color,
+                );
+            } else {
+                // Fallback to minimum ground level
+                let safe_y = 650.0; // Ground level + padding
+                eprintln!("Using fallback ground position: ({}, {})", x, safe_y);
+                return Self::spawn_clan_leader_at_position(
+                    entities,
+                    next_entity_id,
+                    _name,
+                    clan_name,
+                    x,
+                    safe_y,
+                    color,
+                );
+            }
+        }
+
+        Self::spawn_clan_leader_at_position(entities, next_entity_id, _name, clan_name, x, y, color)
+    }
+
+    /// Internal function to spawn clan leader at verified position
+    fn spawn_clan_leader_at_position(
+        entities: &mut Vec<GameEntity>,
+        next_entity_id: &mut u32,
+        _name: &str,
+        clan_name: &str,
         x: f32,
         y: f32,
         color: Color,
@@ -148,7 +199,7 @@ impl WorldSystem {
             id: entity_id,
             position: Position { x, y },
             velocity: Some(Velocity { x: 0.0, y: 0.0 }),
-            entity_type: EntityType::ClanLeader(clan.to_string()),
+            entity_type: EntityType::ClanLeader(clan_name.to_string()),
             health: Some(Health {
                 current: 120.0,
                 max: 120.0,
@@ -174,8 +225,9 @@ impl WorldSystem {
         count: usize,
     ) {
         (0..count).for_each(|_| {
-            let x = rand::gen_range(100.0, 1000.0);
-            let y = rand::gen_range(610.0, 1100.0);
+            let (min_x, max_x, min_y, max_y) = Self::get_spawn_bounds(&EntityType::HostileInfected);
+            let x = rand::gen_range(min_x, max_x);
+            let y = rand::gen_range(min_y, max_y);
             Self::spawn_hostile_infected(entities, next_entity_id, x, y);
         });
     }
@@ -218,8 +270,9 @@ impl WorldSystem {
         count: usize,
     ) {
         (0..count).for_each(|_| {
-            let x = rand::gen_range(50.0, 1200.0);
-            let y = rand::gen_range(610.0, 1150.0);
+            let (min_x, max_x, min_y, max_y) = Self::get_spawn_bounds(&EntityType::Animal);
+            let x = rand::gen_range(min_x, max_x);
+            let y = rand::gen_range(min_y, max_y);
             Self::spawn_animal(entities, next_entity_id, x, y);
         });
     }
@@ -277,11 +330,14 @@ impl WorldSystem {
         let tile_size = 64.0;
         let world_width = 1600.0;
         let world_height = 1200.0;
-        let ground_level = 600.0; // Ground starts at y = 600
+        let ground_level = 640.0; // Ground starts at y = 640 (aligned with tile positions)
 
         for x in (0..((world_width / tile_size) as i32)).map(|i| i as f32 * tile_size) {
-            for y in (((ground_level / tile_size) as i32)..((world_height / tile_size) as i32))
-                .map(|i| i as f32 * tile_size)
+            // Ensure tiles start exactly at ground level
+            let start_tile_y = ((ground_level / tile_size).ceil() as i32) * tile_size as i32;
+            for y in (start_tile_y..((world_height / tile_size) as i32 * tile_size as i32))
+                .step_by(tile_size as usize)
+                .map(|i| i as f32)
             {
                 let tile_type = Self::determine_tile_type();
                 ground_tiles.push(GroundTile::new(x, y, tile_type));
@@ -299,8 +355,91 @@ impl WorldSystem {
         }
     }
 
+    /// Check if a position has ground (is within the ground area)
+    pub fn has_ground_at_position(x: f32, y: f32) -> bool {
+        let world_width = 1600.0;
+        let world_height = 1200.0;
+        let ground_level = 640.0; // Ground starts at y = 640 (aligned with tile positions)
+
+        // Check if position is within world bounds and at or below ground level
+        x >= 0.0 && x <= world_width && y >= ground_level && y <= world_height
+    }
+
+    /// Generate a random position within the ground area
+    pub fn generate_random_ground_position() -> (f32, f32) {
+        let world_width = 1600.0;
+        let world_height = 1200.0;
+        let ground_level = 640.0;
+
+        // Generate random position within ground area with some padding from edges
+        let padding = 64.0;
+        let x = rand::gen_range(padding, world_width - padding);
+        let y = rand::gen_range(ground_level + padding, world_height - padding);
+
+        (x, y)
+    }
+
+    /// Check if a position is close enough to ground area to be relocated
+    pub fn is_relocatable_to_ground(x: f32, y: f32) -> bool {
+        let world_width = 1600.0;
+        let ground_level = 640.0;
+
+        // Only relocate if:
+        // 1. X coordinate is within world bounds
+        // 2. Y coordinate is not too far above ground (within 100 units)
+        x >= 0.0 && x <= world_width && y >= (ground_level - 100.0) && y < ground_level
+    }
+
     /// Spawn a clan member at a specific location
     pub fn spawn_clan_member(
+        entities: &mut Vec<GameEntity>,
+        next_entity_id: &mut u32,
+        clan_name: &str,
+        x: f32,
+        y: f32,
+        color: Color,
+    ) -> u32 {
+        // Validate ground position
+        if !Self::has_ground_at_position(x, y) {
+            eprintln!(
+                "Warning: Clan member spawning above ground at ({}, {}) - adjusting position",
+                x, y
+            );
+            // Find a safe position using spawn bounds
+            if let Some((safe_x, safe_y)) = Self::find_safe_spawn_position(
+                entities,
+                &EntityType::ClanMember(clan_name.to_string()),
+                30.0,
+                10,
+            ) {
+                return Self::spawn_clan_member_at_position(
+                    entities,
+                    next_entity_id,
+                    clan_name,
+                    safe_x,
+                    safe_y,
+                    color,
+                );
+            } else {
+                // Fallback to minimum ground level
+                let safe_y = 650.0; // Ground level + padding
+                eprintln!("Using fallback ground position: ({}, {})", x, safe_y);
+                return Self::spawn_clan_member_at_position(
+                    entities,
+                    next_entity_id,
+                    clan_name,
+                    x,
+                    safe_y,
+                    color,
+                );
+            }
+        }
+
+        Self::spawn_clan_member_at_position(entities, next_entity_id, clan_name, x, y, color)
+    }
+
+    /// Internal function to spawn clan member at verified position
+    fn spawn_clan_member_at_position(
         entities: &mut Vec<GameEntity>,
         next_entity_id: &mut u32,
         clan_name: &str,
@@ -335,11 +474,11 @@ impl WorldSystem {
     /// Get spawn bounds for different entity types
     pub fn get_spawn_bounds(entity_type: &EntityType) -> (f32, f32, f32, f32) {
         match entity_type {
-            EntityType::Player => (350.0, 450.0, 600.0, 700.0),
-            EntityType::ClanLeader(_) => (200.0, 1200.0, 150.0, 750.0),
-            EntityType::ClanMember(_) => (100.0, 1400.0, 100.0, 800.0),
-            EntityType::HostileInfected => (50.0, 1350.0, 50.0, 850.0),
-            EntityType::Animal => (50.0, 1200.0, 610.0, 1150.0),
+            EntityType::Player => (350.0, 450.0, 640.0, 740.0),
+            EntityType::ClanLeader(_) => (200.0, 1200.0, 640.0, 750.0),
+            EntityType::ClanMember(_) => (100.0, 1400.0, 640.0, 800.0),
+            EntityType::HostileInfected => (50.0, 1350.0, 640.0, 850.0),
+            EntityType::Animal => (50.0, 1200.0, 650.0, 1150.0),
             EntityType::Shelter => (0.0, 1600.0, 0.0, 800.0),
         }
     }
@@ -415,7 +554,7 @@ impl WorldSystem {
             // Underground bunkers - maximum protection, rare
             (
                 350.0,
-                600.0,
+                650.0,
                 ShelterType::Underground,
                 Some(ShelterCondition::Pristine),
                 Some("Emergency Bunker"),
@@ -444,7 +583,7 @@ impl WorldSystem {
             ),
             (
                 1100.0,
-                600.0,
+                650.0,
                 ShelterType::Ruins,
                 Some(ShelterCondition::Good),
                 None,
@@ -510,13 +649,57 @@ impl WorldSystem {
             ),
         ];
 
-        for (x, y, shelter_type, condition, name) in shelter_locations.iter() {
+        // Spawn shelters with better distribution
+        let mut spawned_shelters = Vec::new();
+
+        for (desired_x, desired_y, shelter_type, condition, name) in shelter_locations.iter() {
+            let (spawn_x, spawn_y) = if Self::has_ground_at_position(*desired_x, *desired_y) {
+                // If already on valid ground, use original position
+                (*desired_x, *desired_y)
+            } else if Self::is_relocatable_to_ground(*desired_x, *desired_y) {
+                // If close to ground area, relocate to a random ground position
+                // but avoid clustering by checking against already spawned shelters
+                let mut attempts = 0;
+                let max_attempts = 10;
+
+                loop {
+                    let (candidate_x, candidate_y) = Self::generate_random_ground_position();
+
+                    // Check if this position is too close to existing shelters
+                    let min_distance = 120.0; // Minimum distance between shelters
+                    let too_close = spawned_shelters.iter().any(|(sx, sy)| {
+                        let dx = candidate_x - sx;
+                        let dy = candidate_y - sy;
+                        (dx * dx + dy * dy).sqrt() < min_distance
+                    });
+
+                    if !too_close || attempts >= max_attempts {
+                        break (candidate_x, candidate_y);
+                    }
+
+                    attempts += 1;
+                }
+            } else {
+                // If too far from ground area, skip this shelter
+                println!(
+                    "Info: Skipping shelter '{}' at ({}, {}) - too far from ground area",
+                    name.as_ref().unwrap_or(&"Unnamed"),
+                    desired_x,
+                    desired_y
+                );
+                continue;
+            };
+
+            // Track spawned position to avoid clustering
+            spawned_shelters.push((spawn_x, spawn_y));
+
+            // Spawn the shelter
             ShelterSystem::spawn_shelter(
                 entities,
                 next_entity_id,
                 shelter_type.clone(),
-                *x,
-                *y,
+                spawn_x,
+                spawn_y,
                 condition.clone(),
                 name.map(|s| s.to_string()),
             );
@@ -577,10 +760,10 @@ mod tests {
     #[test]
     fn test_spawn_bounds() {
         let bounds = WorldSystem::get_spawn_bounds(&EntityType::Player);
-        assert_eq!(bounds, (300.0, 500.0, 600.0, 700.0));
+        assert_eq!(bounds, (350.0, 450.0, 640.0, 740.0));
 
         let bounds = WorldSystem::get_spawn_bounds(&EntityType::Animal);
-        assert_eq!(bounds, (50.0, 1200.0, 610.0, 1150.0));
+        assert_eq!(bounds, (50.0, 1200.0, 650.0, 1150.0));
     }
 
     #[test]
