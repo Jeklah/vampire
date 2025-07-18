@@ -173,11 +173,11 @@ impl WorldSystem {
         next_entity_id: &mut u32,
         count: usize,
     ) {
-        for _ in 0..count {
+        (0..count).for_each(|_| {
             let x = rand::gen_range(100.0, 1000.0);
             let y = rand::gen_range(610.0, 1100.0);
             Self::spawn_hostile_infected(entities, next_entity_id, x, y);
-        }
+        });
     }
 
     /// Spawn a single hostile infected creature
@@ -217,11 +217,11 @@ impl WorldSystem {
         next_entity_id: &mut u32,
         count: usize,
     ) {
-        for _ in 0..count {
+        (0..count).for_each(|_| {
             let x = rand::gen_range(50.0, 1200.0);
             let y = rand::gen_range(610.0, 1150.0);
             Self::spawn_animal(entities, next_entity_id, x, y);
-        }
+        });
     }
 
     /// Spawn a single animal
@@ -258,11 +258,11 @@ impl WorldSystem {
     /// Initialize the starfield background
     pub fn initialize_starfield(stars: &mut Vec<Star>) {
         stars.clear();
-        for _ in 0..200 {
+        (0..200).for_each(|_| {
             let x = rand::gen_range(0.0, 1600.0);
             let y = rand::gen_range(0.0, 1200.0);
             stars.push(Star::new(x, y));
-        }
+        });
     }
 
     /// Initialize the moon
@@ -532,16 +532,16 @@ impl WorldSystem {
     ) -> Option<(f32, f32)> {
         let (min_x, max_x, min_y, max_y) = Self::get_spawn_bounds(entity_type);
 
-        for _ in 0..max_attempts {
+        (0..max_attempts).find_map(|_| {
             let x = rand::gen_range(min_x, max_x);
             let y = rand::gen_range(min_y, max_y);
 
             if Self::is_valid_spawn_position(entities, x, y, min_distance) {
-                return Some((x, y));
+                Some((x, y))
+            } else {
+                None
             }
-        }
-
-        None
+        })
     }
 }
 

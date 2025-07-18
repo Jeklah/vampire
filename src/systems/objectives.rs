@@ -339,29 +339,24 @@ impl ObjectivesSystem {
 
     /// Get list of zones the player has explored based on position
     fn get_explored_zones(x: f32, y: f32) -> Vec<&'static str> {
-        let mut zones = Vec::new();
-
-        // Define zone boundaries
-        if x < 400.0 && y < 800.0 {
-            zones.push("Northwest Territory");
-        }
-        if x >= 400.0 && x < 800.0 && y < 800.0 {
-            zones.push("North Central Territory");
-        }
-        if x >= 800.0 && y < 800.0 {
-            zones.push("Northeast Territory");
-        }
-        if x < 400.0 && y >= 800.0 {
-            zones.push("Southwest Territory");
-        }
-        if x >= 400.0 && x < 800.0 && y >= 800.0 {
-            zones.push("South Central Territory");
-        }
-        if x >= 800.0 && y >= 800.0 {
-            zones.push("Southeast Territory");
-        }
-
-        zones
+        // Define zone boundaries and conditions using iterator pattern
+        [
+            ((x < 400.0 && y < 800.0), "Northwest Territory"),
+            (
+                (x >= 400.0 && x < 800.0 && y < 800.0),
+                "North Central Territory",
+            ),
+            ((x >= 800.0 && y < 800.0), "Northeast Territory"),
+            ((x < 400.0 && y >= 800.0), "Southwest Territory"),
+            (
+                (x >= 400.0 && x < 800.0 && y >= 800.0),
+                "South Central Territory",
+            ),
+            ((x >= 800.0 && y >= 800.0), "Southeast Territory"),
+        ]
+        .iter()
+        .filter_map(|&(condition, zone)| if condition { Some(zone) } else { None })
+        .collect()
     }
 
     /// Complete an objective if it exists in the phase objectives

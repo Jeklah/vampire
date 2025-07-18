@@ -137,35 +137,36 @@ impl ShelterSystem {
             None => return Vec::new(),
         };
 
-        let mut shelter_info = Vec::new();
-
-        for entity in entities {
-            if let Some(shelter) = &entity.shelter {
-                let distance = ((player_pos.x - entity.position.x).powi(2)
-                    + (player_pos.y - entity.position.y).powi(2))
-                .sqrt();
-
-                if distance <= max_distance
-                    && (shelter.discovered || distance <= shelter.shelter_type.discovery_range())
-                {
-                    shelter_info.push(ShelterInfo {
-                        id: entity.id,
-                        position: entity.position,
-                        shelter_type: shelter.shelter_type.clone(),
-                        condition: shelter.condition.clone(),
-                        protection_level: shelter.effective_protection(),
-                        occupancy: format!(
-                            "{}/{}",
-                            shelter.occupant_count(),
-                            shelter.shelter_type.max_capacity()
-                        ),
-                        distance,
-                        discovered: shelter.discovered,
-                        name: shelter.name.clone(),
-                    });
-                }
-            }
-        }
+        let mut shelter_info: Vec<ShelterInfo> = entities
+            .iter()
+            .filter_map(|entity| {
+                entity.shelter.as_ref().map(|shelter| {
+                    let distance = ((player_pos.x - entity.position.x).powi(2)
+                        + (player_pos.y - entity.position.y).powi(2))
+                    .sqrt();
+                    (entity, shelter, distance)
+                })
+            })
+            .filter(|(_, shelter, distance)| {
+                *distance <= max_distance
+                    && (shelter.discovered || *distance <= shelter.shelter_type.discovery_range())
+            })
+            .map(|(entity, shelter, distance)| ShelterInfo {
+                id: entity.id,
+                position: entity.position,
+                shelter_type: shelter.shelter_type.clone(),
+                condition: shelter.condition.clone(),
+                protection_level: shelter.effective_protection(),
+                occupancy: format!(
+                    "{}/{}",
+                    shelter.occupant_count(),
+                    shelter.shelter_type.max_capacity()
+                ),
+                distance,
+                discovered: shelter.discovered,
+                name: shelter.name.clone(),
+            })
+            .collect();
 
         // Sort by distance
         shelter_info.sort_by(|a, b| a.distance.partial_cmp(&b.distance).unwrap());
@@ -488,11 +489,11 @@ impl ShelterSystem {
         draw_circle(screen_x, screen_y - height / 4.0, width / 4.0, secondary);
 
         // Rocky details
-        for i in 0..5 {
+        (0..5).for_each(|i| {
             let offset_x = (i as f32 - 2.0) * width / 8.0;
             let offset_y = rand::gen_range(-height / 3.0, height / 3.0);
             draw_circle(screen_x + offset_x, screen_y + offset_y, 3.0, primary);
-        }
+        });
     }
 
     /// Draw a building shelter
@@ -549,19 +550,13 @@ impl ShelterSystem {
         let secondary = shelter.shelter_type.secondary_color();
 
         // Tree trunks
-        for i in 0..3 {
+        (0..3).for_each(|i| {
             let x_offset = (i as f32 - 1.0) * width / 3.0;
-            draw_rectangle(
-                screen_x + x_offset - 4.0,
-                screen_y,
-                8.0,
-                height / 2.0,
-                BROWN,
-            );
-        }
+            draw_rectangle(screen_x + x_offset - 4.0, screen_y, 8.0, height, secondary);
+        });
 
         // Tree canopy (overlapping circles for density)
-        for i in 0..5 {
+        (0..5).for_each(|i| {
             let x_offset = (i as f32 - 2.0) * width / 6.0;
             let y_offset = rand::gen_range(-height / 4.0, 0.0);
             draw_circle(
@@ -570,7 +565,7 @@ impl ShelterSystem {
                 width / 4.0,
                 primary,
             );
-        }
+        });
 
         // Denser inner foliage
         draw_circle(screen_x, screen_y - height / 3.0, width / 3.0, secondary);
@@ -591,7 +586,7 @@ impl ShelterSystem {
         );
 
         // Metal grating pattern
-        for i in 0..4 {
+        (0..4).for_each(|i| {
             let line_y = screen_y - height / 2.0 + (i as f32 + 1.0) * height / 5.0;
             draw_line(
                 screen_x - width / 2.0,
@@ -601,8 +596,8 @@ impl ShelterSystem {
                 2.0,
                 secondary,
             );
-        }
-        for i in 0..3 {
+        });
+        (0..3).for_each(|i| {
             let line_x = screen_x - width / 2.0 + (i as f32 + 1.0) * width / 4.0;
             draw_line(
                 line_x,
@@ -612,16 +607,10 @@ impl ShelterSystem {
                 2.0,
                 secondary,
             );
-        }
+        });
 
         // Ladder indication
-        draw_rectangle(
-            screen_x - 3.0,
-            screen_y - height / 2.0,
-            6.0,
-            height + 10.0,
-            DARKGRAY,
-        );
+        draw_rectangle(screen_x - 3.0, screen_y, 6.0, height + 10.0, DARKGRAY);
     }
 
     /// Draw ruins shelter
@@ -646,11 +635,11 @@ impl ShelterSystem {
         );
 
         // Rubble and debris
-        for _i in 0..8 {
+        (0..8).for_each(|_| {
             let debris_x = screen_x + rand::gen_range(-width / 2.0, width / 2.0);
             let debris_y = screen_y + rand::gen_range(-height / 2.0, height / 2.0);
             draw_circle(debris_x, debris_y, rand::gen_range(2.0, 6.0), secondary);
-        }
+        });
 
         // Archway (partially collapsed)
         draw_circle(screen_x, screen_y - height / 4.0, width / 4.0, primary);

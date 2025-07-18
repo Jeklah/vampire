@@ -56,14 +56,12 @@ impl BloodSystem {
         sunlight_intensity: f32,
         delta_time: f32,
     ) {
-        // Collect entity IDs and base damage for entities with blood meters
-        let mut damage_calculations = Vec::new();
-        for entity in entities.iter() {
-            if entity.blood_meter.is_some() && entity.health.is_some() {
-                let base_damage = 3.0 * sunlight_intensity * delta_time;
-                damage_calculations.push((entity.id, base_damage));
-            }
-        }
+        // Collect entity IDs and base damage for entities with blood meters using iterator
+        let damage_calculations: Vec<(u32, f32)> = entities
+            .iter()
+            .filter(|entity| entity.blood_meter.is_some() && entity.health.is_some())
+            .map(|entity| (entity.id, 3.0 * sunlight_intensity * delta_time))
+            .collect();
 
         // Apply calculated damage
         for (entity_id, base_damage) in damage_calculations {
@@ -105,9 +103,9 @@ impl BloodSystem {
             "Creating {} blood particles at ({}, {})",
             intensity, x, y
         ));
-        for _ in 0..intensity {
+        (0..intensity).for_each(|_| {
             blood_particles.push(BloodParticle::new(x, y));
-        }
+        });
         debug_messages.push(format!(
             "Blood particles vector now has {} particles",
             blood_particles.len()

@@ -14,52 +14,34 @@ impl AISystem {
     pub fn update_all_ai(entities: &mut Vec<GameEntity>, player_id: u32, delta_time: f32) {
         let player_pos = Self::get_player_position(entities, player_id);
 
-        // Collect AI updates to avoid borrowing issues
-        let mut ai_updates = Vec::new();
+        // Pre-allocate with estimated capacity for better performance
+        let mut ai_updates = Vec::with_capacity(entities.len() / 4);
 
-        for entity in entities.iter() {
-            if entity.id == player_id {
-                continue;
-            }
+        // Use high-performance iterator to filter living entities
+        let living_entities = entities.alive_entities().filter(|e| e.id != player_id);
 
-            if let Some(health) = &entity.health {
-                if health.current <= 0.0 || matches!(entity.ai_state, AIState::Dead) {
-                    continue;
-                }
-            }
+        // Process AI updates using new iterator
+        for entity in living_entities {
+            let update = match entity.ai_state {
+                AIState::Hostile => Self::update_hostile_ai(entity, &player_pos, delta_time),
+                AIState::Fleeing => Self::update_fleeing_ai(entity, &player_pos, delta_time),
+                AIState::Idle => Self::update_idle_ai(entity, &player_pos, delta_time),
+                AIState::Dead => None, // Filtered out by alive_entities()
+            };
 
-            match entity.ai_state {
-                AIState::Hostile => {
-                    if let Some(update) = Self::update_hostile_ai(entity, &player_pos, delta_time) {
-                        ai_updates.push(update);
-                    }
-                }
-                AIState::Fleeing => {
-                    if let Some(update) = Self::update_fleeing_ai(entity, &player_pos, delta_time) {
-                        ai_updates.push(update);
-                    }
-                }
-                AIState::Idle => {
-                    if let Some(update) = Self::update_idle_ai(entity, &player_pos, delta_time) {
-                        ai_updates.push(update);
-                    }
-                }
-                AIState::Dead => {
-                    // Dead entities don't need AI updates
-                }
+            if let Some(ai_update) = update {
+                ai_updates.push(ai_update);
             }
         }
 
-        // Apply AI updates
+        // Apply AI updates with optimized collection
         Self::apply_ai_updates(entities, ai_updates, delta_time);
     }
 
-    /// Get the player's current position
+    /// Get the player's current position using optimized entity finder
     fn get_player_position(entities: &[GameEntity], player_id: u32) -> Option<Position> {
-        entities
-            .iter()
-            .find(|e| e.id == player_id)
-            .map(|player| player.position)
+        // Use optimized entity finder for better performance
+        EntityFinder::by_id(entities, player_id).map(|player| player.position)
     }
 
     /// Update hostile AI behavior

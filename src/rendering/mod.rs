@@ -193,8 +193,16 @@ impl Renderer {
         // Batch entities by type for potential future optimizations
         let mut visible_entities = Vec::with_capacity(game_state.entities.len());
 
-        // First pass: cull and collect visible entities
-        for entity in &game_state.entities {
+        // Use high-performance iterator with pre-allocated capacity
+        visible_entities.reserve(game_state.entities.len() / 2);
+
+        // First pass: cull and collect visible entities using optimized iteration
+        for entity in game_state.entities.alive_entities() {
+            // Skip shelter entities (rendered separately)
+            if matches!(entity.entity_type, EntityType::Shelter) {
+                continue;
+            }
+
             let screen_x = entity.position.x * self.zoom_level + camera_offset_x;
             let screen_y = entity.position.y * self.zoom_level + camera_offset_y;
 
@@ -204,74 +212,88 @@ impl Renderer {
                 && screen_y > -cull_margin
                 && screen_y < screen_h + cull_margin
             {
-                // Skip dead entities early
-                if let Some(health) = &entity.health {
-                    if health.current <= 0.0 || matches!(entity.ai_state, AIState::Dead) {
-                        continue;
-                    }
-                }
-
-                // Skip shelter entities (rendered separately)
-                if matches!(entity.entity_type, EntityType::Shelter) {
-                    continue;
-                }
-
                 visible_entities.push((entity, screen_x, screen_y));
             }
         }
 
-        // Second pass: render visible entities
-        for (entity, screen_x, screen_y) in visible_entities {
-            let size = match entity.entity_type {
-                EntityType::Player => 30.0,
-                EntityType::ClanLeader(_) => 28.0,
-                EntityType::ClanMember(_) => 24.0,
-                EntityType::HostileInfected => 20.0,
-                EntityType::Animal => 16.0,
-                EntityType::Shelter => continue, // Already filtered out
-            };
+        // Second pass: render visible entities using batched processing
+        self.render_entities_batched(&visible_entities, skip_details, game_state);
+    }
 
-            // Draw entity sprite
-            match entity.entity_type {
-                EntityType::Player => {
-                    let facing_direction = entity
-                        .velocity
-                        .as_ref()
-                        .map(|v| v.x.atan2(v.y))
-                        .unwrap_or(0.0);
-                    self.draw_vampire_sprite(screen_x, screen_y, size, facing_direction);
-                }
-                EntityType::ClanLeader(_) => {
-                    self.draw_clan_leader_sprite(screen_x, screen_y, size, entity.color);
-                }
-                EntityType::HostileInfected => {
-                    let facing_direction = entity
-                        .velocity
-                        .as_ref()
-                        .map(|v| v.x.atan2(v.y))
-                        .unwrap_or(0.0);
-                    self.draw_infected_sprite(screen_x, screen_y, size, facing_direction);
-                }
-                EntityType::Animal => {
-                    self.draw_animal_sprite(screen_x, screen_y, size);
-                }
-                EntityType::ClanMember(_) => {
-                    self.draw_clan_member_sprite(screen_x, screen_y, size, entity.color);
-                }
-                EntityType::Shelter => unreachable!(),
-            }
+    /// Render entities in batches for better performance
+    fn render_entities_batched(
+        &self,
+        visible_entities: &[(&GameEntity, f32, f32)],
+        skip_details: bool,
+        game_state: &GameState,
+    ) {
+        // Group entities by type for batched rendering
+        let mut batches: std::collections::HashMap<std::mem::Discriminant<EntityType>, Vec<_>> =
+            std::collections::HashMap::new();
 
-            // Draw health bar only if not skipping details and entity is close enough
-            if let Some(health) = &entity.health {
-                if !skip_details {
-                    let distance_to_camera = ((entity.position.x - game_state.camera_x).powi(2)
-                        + (entity.position.y - game_state.camera_y).powi(2))
-                    .sqrt();
+        for &(entity, screen_x, screen_y) in visible_entities {
+            let discriminant = std::mem::discriminant(&entity.entity_type);
+            batches
+                .entry(discriminant)
+                .or_default()
+                .push((entity, screen_x, screen_y));
+        }
 
-                    // Only draw health bars for entities within reasonable distance
-                    let health_bar_distance = if self.performance_mode { 150.0 } else { 300.0 };
-                    if distance_to_camera < health_bar_distance {
-                        self.draw_health_bar(screen_x, screen_y, size, health);
+        // Render each batch
+        for batch in batches.values() {
+            for &(entity, screen_x, screen_y) in batch {
+                let size = match entity.entity_type {
+                    EntityType::Player => 30.0,
+                    EntityType::ClanLeader(_) => 28.0,
+                    EntityType::ClanMember(_) => 24.0,
+                    EntityType::HostileInfected => 20.0,
+                    EntityType::Animal => 16.0,
+                    EntityType::Shelter => continue, // Already filtered out
+                };
+
+                // Draw entity sprite
+                match entity.entity_type {
+                    EntityType::Player => {
+                        let facing_direction = entity
+                            .velocity
+                            .as_ref()
+                            .map(|v| v.x.atan2(v.y))
+                            .unwrap_or(0.0);
+                        self.draw_vampire_sprite(screen_x, screen_y, size, facing_direction);
+                    }
+                    EntityType::ClanLeader(_) => {
+                        self.draw_clan_leader_sprite(screen_x, screen_y, size, entity.color);
+                    }
+                    EntityType::HostileInfected => {
+                        let facing_direction = entity
+                            .velocity
+                            .as_ref()
+                            .map(|v| v.x.atan2(v.y))
+                            .unwrap_or(0.0);
+                        self.draw_infected_sprite(screen_x, screen_y, size, facing_direction);
+                    }
+                    EntityType::Animal => {
+                        self.draw_animal_sprite(screen_x, screen_y, size);
+                    }
+                    EntityType::ClanMember(_) => {
+                        self.draw_clan_member_sprite(screen_x, screen_y, size, entity.color);
+                    }
+                    EntityType::Shelter => unreachable!(),
+                }
+
+                // Draw health bar only if not skipping details and entity is close enough
+                if let Some(health) = &entity.health {
+                    if !skip_details {
+                        let distance_to_camera = ((entity.position.x - game_state.camera_x)
+                            .powi(2)
+                            + (entity.position.y - game_state.camera_y).powi(2))
+                        .sqrt();
+
+                        // Only draw health bars for entities within reasonable distance
+                        let health_bar_distance = if self.performance_mode { 150.0 } else { 300.0 };
+                        if distance_to_camera < health_bar_distance {
+                            self.draw_health_bar(screen_x, screen_y, size, health);
+                        }
                     }
                 }
             }
@@ -346,12 +368,8 @@ impl Renderer {
             day_color,
         );
 
-        // Player stats
-        if let Some(player) = game_state
-            .entities
-            .iter()
-            .find(|e| matches!(e.entity_type, EntityType::Player))
-        {
+        // Player stats using optimized entity finder
+        if let Some(player) = EntityFinder::by_id(&game_state.entities, game_state.player_id) {
             let mut y_offset = 100.0 * self.ui_scale;
 
             // Health bar
@@ -1149,7 +1167,7 @@ impl Renderer {
         // Claws
         if facing.cos() > 0.0 {
             // Facing right
-            for i in 0..3 {
+            (0..3).for_each(|i| {
                 draw_rectangle(
                     x + 2.0 * pixel_size + i as f32 * pixel_size * 0.3,
                     y - pixel_size + i as f32 * pixel_size * 0.2,
@@ -1157,10 +1175,10 @@ impl Renderer {
                     pixel_size,
                     GRAY,
                 );
-            }
+            });
         } else {
             // Facing left
-            for i in 0..3 {
+            (0..3).for_each(|i| {
                 draw_rectangle(
                     x - 2.5 * pixel_size - i as f32 * pixel_size * 0.3,
                     y - pixel_size + i as f32 * pixel_size * 0.2,
@@ -1168,7 +1186,7 @@ impl Renderer {
                     pixel_size,
                     GRAY,
                 );
-            }
+            });
         }
 
         // Danger X mark
