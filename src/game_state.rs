@@ -5,6 +5,7 @@
 //! to focused systems, following the Single Responsibility Principle.
 
 use crate::components::*;
+
 use crate::systems::*;
 use crate::InputHandler;
 use macroquad::prelude::*;
@@ -20,6 +21,7 @@ pub struct GameState {
     // Game systems
     pub time: TimeSystem,
     pub phase: GamePhase,
+    pub infinite_world: InfiniteWorldSystem,
 
     // Game data
     pub clans: HashMap<String, Clan>,
@@ -35,7 +37,6 @@ pub struct GameState {
     pub stars: Vec<Star>,
     pub moon: Moon,
     pub blood_particles: Vec<BloodParticle>,
-    pub ground_tiles: Vec<GroundTile>,
 
     // Debug message log
     pub debug_messages: Vec<String>,
@@ -56,9 +57,10 @@ impl GameState {
             player_id: 0,
             time: TimeSystem::new(),
             phase: GamePhase::SurvivalAndDiscovery,
+            infinite_world: InfiniteWorldSystem::new(1000),
             clans: HashMap::new(),
-            camera_x: 0.0,
-            camera_y: 0.0,
+            camera_x: 640.0, // Center of screen horizontally
+            camera_y: 600.0, // Start near bottom of screen
             phase_objectives: ObjectivesSystem::get_initial_objectives(
                 &GamePhase::SurvivalAndDiscovery,
             ),
@@ -73,19 +75,19 @@ impl GameState {
             stars: Vec::new(),
             moon: Moon::new(),
             blood_particles: Vec::new(),
-            ground_tiles: Vec::new(),
             debug_messages: Vec::new(),
         };
 
-        // Initialize the world using the world system
-        state.player_id = WorldSystem::initialize_world(
-            &mut state.entities,
-            &mut state.clans,
-            &mut state.stars,
-            &mut state.moon,
-            &mut state.ground_tiles,
-            &mut state.next_entity_id,
-        );
+        // Initialize basic world elements for vertical movement
+        state.player_id = WorldSystem::spawn_player(&mut state.entities, &mut state.next_entity_id);
+        WorldSystem::initialize_clans(&mut state.clans);
+        WorldSystem::initialize_starfield(&mut state.stars);
+        WorldSystem::initialize_moon(&mut state.moon);
+
+        // Update infinite world system with current next_entity_id
+        state
+            .infinite_world
+            .update_next_entity_id(state.next_entity_id);
 
         state
     }
@@ -113,6 +115,7 @@ impl GameState {
         self.update_shelter_system(delta_time);
         self.update_blood_system(delta_time);
         self.update_objectives_system();
+        self.update_infinite_world_system();
         self.update_camera();
         self.update_phase_progression();
     }
@@ -299,11 +302,21 @@ impl GameState {
         );
     }
 
-    /// Update camera to follow player
+    /// Update camera to follow player vertically, keep centered horizontally
     fn update_camera(&mut self) {
         if let Some(player) = EntityFinder::by_id(&self.entities, self.player_id) {
-            self.camera_x = player.position.x;
+            // For vertical movement, keep camera centered horizontally
+            self.camera_x = screen_width() / 2.0;
+            // Follow player vertically for forward/backward movement
             self.camera_y = player.position.y;
+        }
+    }
+
+    fn update_infinite_world_system(&mut self) {
+        if let Some(player) = EntityFinder::by_id(&self.entities, self.player_id) {
+            self.infinite_world
+                .update(player.position.y, &mut self.entities, &self.clans);
+            self.next_entity_id = self.infinite_world.get_next_entity_id();
         }
     }
 
@@ -487,6 +500,12 @@ impl GameState {
     /// Reset game to initial state
     pub fn reset(&mut self) {
         *self = Self::new();
+    }
+
+    /// Get visible ground tiles for rendering
+    pub fn get_visible_ground_tiles(&self) -> Vec<&GroundTile> {
+        self.infinite_world
+            .get_visible_ground_tiles(self.camera_y, screen_height())
     }
 }
 

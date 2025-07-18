@@ -42,18 +42,18 @@ impl PlayerSystem {
             let mut move_x = 0.0;
             let mut move_y = 0.0;
 
-            // Get movement input
+            // Get movement input for vertical movement (W = forward/up, S = backward/down)
             if input_handler.is_key_pressed(KeyCode::W) {
-                move_y = -1.0;
+                move_y = -1.0; // Move up (forward into distance)
             }
             if input_handler.is_key_pressed(KeyCode::S) {
-                move_y = 1.0;
+                move_y = 1.0; // Move down (backward)
             }
             if input_handler.is_key_pressed(KeyCode::A) {
-                move_x = -1.0;
+                move_x = -1.0; // Move left
             }
             if input_handler.is_key_pressed(KeyCode::D) {
-                move_x = 1.0;
+                move_x = 1.0; // Move right
             }
 
             // Normalize diagonal movement
@@ -91,9 +91,11 @@ impl PlayerSystem {
             // Facing direction calculation removed as field no longer exists
             // Direction is now calculated from velocity when needed for rendering
 
-            // Keep player within world bounds
-            player.position.x = player.position.x.clamp(0.0, 1600.0);
-            player.position.y = player.position.y.clamp(640.0, 1200.0); // Can't go above ground level
+            // Keep player within screen bounds for vertical movement
+            // Allow infinite upward movement (forward), constrain horizontally to screen width
+            player.position.x = player.position.x.clamp(50.0, screen_width() - 50.0);
+            // Allow movement from bottom of screen upward (no upper limit for infinite world)
+            player.position.y = player.position.y.min(screen_height() - 50.0); // Can't go below screen bottom
         }
     }
 

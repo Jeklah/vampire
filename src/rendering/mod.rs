@@ -111,9 +111,10 @@ impl Renderer {
 
         clear_background(Color::new(0.05, 0.05, 0.15, 1.0)); // Dark blue night sky
 
-        // Calculate camera offset with zoom
+        // Calculate camera offset with zoom for vertical movement
+        // Center horizontally, position ground at bottom of screen
         let camera_offset_x = screen_width() / 2.0 - game_state.camera_x * self.zoom_level;
-        let camera_offset_y = screen_height() / 2.0 - game_state.camera_y * self.zoom_level;
+        let camera_offset_y = screen_height() * 0.8 - game_state.camera_y * self.zoom_level;
 
         // Update camera tracking for performance decisions
         let camera_delta_x = (game_state.camera_x - self.last_camera_x).abs();
@@ -757,8 +758,11 @@ impl Renderer {
         .sqrt();
         let is_moving_fast = camera_speed > 150.0;
 
+        // Get visible ground tiles from infinite world system
+        let visible_tiles = game_state.get_visible_ground_tiles();
+
         // Always draw ground, but vary detail level based on performance conditions
-        for tile in &game_state.ground_tiles {
+        for tile in visible_tiles {
             let screen_x = tile.x * self.zoom_level + camera_offset_x;
             let screen_y = tile.y * self.zoom_level + camera_offset_y;
 

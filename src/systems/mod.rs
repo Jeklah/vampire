@@ -6,6 +6,7 @@
 
 pub mod ai;
 pub mod blood;
+pub mod infinite_world;
 pub mod objectives;
 pub mod player;
 pub mod shelter;
@@ -15,6 +16,7 @@ pub mod world;
 // Re-export systems for easier access
 pub use ai::AISystem;
 pub use blood::BloodSystem;
+pub use infinite_world::InfiniteWorldSystem;
 pub use objectives::ObjectivesSystem;
 pub use player::PlayerSystem;
 pub use shelter::ShelterSystem;

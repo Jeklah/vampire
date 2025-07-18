@@ -54,7 +54,7 @@ impl WorldSystem {
         let player_id = *next_entity_id;
         let player = GameEntity {
             id: player_id,
-            position: Position { x: 400.0, y: 650.0 },
+            position: Position { x: 640.0, y: 600.0 }, // Start near bottom center of screen
             velocity: Some(Velocity { x: 0.0, y: 0.0 }),
             entity_type: EntityType::Player,
             health: Some(Health {
