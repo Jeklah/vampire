@@ -13,7 +13,7 @@ fn window_conf() -> Conf {
         window_width: 1280,
         window_height: 720,
         window_resizable: false,
-        fullscreen: false,
+        fullscreen: true,
         sample_count: 4,
         ..Default::default()
     }
@@ -30,8 +30,8 @@ async fn main() {
     let mut game_state = GameState::new();
     let mut input_handler = InputHandler::new();
 
-    // Track fullscreen state (starts as false for better cross-platform compatibility)
-    let mut is_fullscreen = false;
+    // Track fullscreen state (starts as true, using macroquad's native fullscreen)
+    let mut is_fullscreen = true;
 
     // Embed font data directly in binary for reliable loading
     let font_data: &[u8] = include_bytes!("../assets/fonts/default.ttf");
@@ -49,9 +49,9 @@ async fn main() {
 
     let mut renderer = Renderer::new(font);
 
-    // Add debug message about window mode
+    // Add debug message about fullscreen mode
     game_state
-        .add_debug_message("Game started in windowed mode (F11 to toggle fullscreen)".to_string());
+        .add_debug_message("Game started in fullscreen mode (F11 to toggle windowed)".to_string());
 
     let mut last_time = get_time();
     let mut frame_count = 0;
