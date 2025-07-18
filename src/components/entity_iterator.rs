@@ -312,17 +312,20 @@ impl PackedEntityStorage {
     /// Batch process positions for spatial queries
     pub fn spatial_query(&self, center: Position, radius: f32) -> Vec<usize> {
         let radius_sq = radius * radius;
-        let mut results = Vec::new();
 
-        for (i, pos) in self.positions.iter().enumerate() {
-            let dx = pos.x - center.x;
-            let dy = pos.y - center.y;
-            if dx * dx + dy * dy <= radius_sq {
-                results.push(i);
-            }
-        }
-
-        results
+        self.positions
+            .iter()
+            .enumerate()
+            .filter_map(|(i, pos)| {
+                let dx = pos.x - center.x;
+                let dy = pos.y - center.y;
+                if dx * dx + dy * dy <= radius_sq {
+                    Some(i)
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 }
 
