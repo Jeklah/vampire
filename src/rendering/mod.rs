@@ -18,6 +18,10 @@ pub struct Renderer {
     last_camera_y: f32,
     camera_moved_significantly: bool,
     frame_skip_counter: u32,
+    // UI scaling for fullscreen
+    ui_scale: f32,
+    base_width: f32,
+    base_height: f32,
 }
 
 impl Renderer {
@@ -32,6 +36,9 @@ impl Renderer {
             last_camera_y: 0.0,
             camera_moved_significantly: true,
             frame_skip_counter: 0,
+            ui_scale: 1.0,
+            base_width: 1280.0,
+            base_height: 720.0,
         }
     }
 
@@ -56,6 +63,20 @@ impl Renderer {
 
     pub fn performance_mode(&self) -> bool {
         self.performance_mode
+    }
+
+    fn update_ui_scaling(&mut self) {
+        // Calculate UI scale based on screen size relative to base resolution
+        let screen_w = screen_width();
+        let screen_h = screen_height();
+
+        // Use the smaller scale factor to maintain aspect ratio
+        let scale_x = screen_w / self.base_width;
+        let scale_y = screen_h / self.base_height;
+        self.ui_scale = scale_x.min(scale_y);
+
+        // Clamp to reasonable bounds
+        self.ui_scale = self.ui_scale.clamp(0.5, 3.0);
     }
 
     fn draw_text_with_font(&self, text: &str, x: f32, y: f32, font_size: f32, color: Color) {
@@ -84,6 +105,9 @@ impl Renderer {
         {
             self.update_performance_scaling(player.velocity.as_ref());
         }
+
+        // Update UI scaling for fullscreen
+        self.update_ui_scaling();
 
         clear_background(Color::new(0.05, 0.05, 0.15, 1.0)); // Dark blue night sky
 
@@ -289,13 +313,19 @@ impl Renderer {
     }
 
     fn draw_ui(&self, game_state: &GameState) {
-        // Time display
+        // Time display with UI scaling
         let time_text = format!(
             "Time: {} - Day {}",
             game_state.time.get_time_string(),
             game_state.time.day_count()
         );
-        self.draw_text_with_font(&time_text, 20.0, 30.0, 24.0, WHITE);
+        self.draw_text_with_font(
+            &time_text,
+            20.0 * self.ui_scale,
+            30.0 * self.ui_scale,
+            24.0 * self.ui_scale,
+            WHITE,
+        );
 
         // Day/night indicator
         let day_text = if game_state.time.is_day() {
@@ -308,32 +338,74 @@ impl Renderer {
         } else {
             BLUE
         };
-        self.draw_text_with_font(day_text, 20.0, 60.0, 24.0, day_color);
+        self.draw_text_with_font(
+            day_text,
+            20.0 * self.ui_scale,
+            60.0 * self.ui_scale,
+            24.0 * self.ui_scale,
+            day_color,
+        );
 
         // Player stats
         if let Some(player) = game_state
             .entities
             .iter()
-            .find(|e| e.id == game_state.player_id)
+            .find(|e| matches!(e.entity_type, EntityType::Player))
         {
-            let mut y_offset = 100.0;
+            let mut y_offset = 100.0 * self.ui_scale;
 
             // Health bar
             if let Some(health) = &player.health {
-                draw_rectangle(20.0, y_offset, 200.0, 20.0, Color::new(0.3, 0.0, 0.0, 1.0));
-                let health_width = 200.0 * (health.current / health.max);
-                draw_rectangle(20.0, y_offset, health_width, 20.0, RED);
-                self.draw_text_with_font("Health", 20.0, y_offset - 5.0, 16.0, WHITE);
-                y_offset += 30.0;
+                draw_rectangle(
+                    20.0 * self.ui_scale,
+                    y_offset,
+                    200.0 * self.ui_scale,
+                    20.0 * self.ui_scale,
+                    Color::new(0.3, 0.0, 0.0, 1.0),
+                );
+                let health_width = 200.0 * self.ui_scale * (health.current / health.max);
+                draw_rectangle(
+                    20.0 * self.ui_scale,
+                    y_offset,
+                    health_width,
+                    20.0 * self.ui_scale,
+                    RED,
+                );
+                self.draw_text_with_font(
+                    "Health",
+                    20.0 * self.ui_scale,
+                    y_offset - 5.0 * self.ui_scale,
+                    16.0 * self.ui_scale,
+                    WHITE,
+                );
+                y_offset += 30.0 * self.ui_scale;
             }
 
             // Blood bar
             if let Some(blood) = &player.blood_meter {
-                draw_rectangle(20.0, y_offset, 200.0, 20.0, Color::new(0.0, 0.0, 0.3, 1.0));
-                let blood_width = 200.0 * (blood.current / blood.maximum);
-                draw_rectangle(20.0, y_offset, blood_width, 20.0, BLUE);
-                self.draw_text_with_font("Blood", 20.0, y_offset - 5.0, 16.0, WHITE);
-                y_offset += 30.0;
+                draw_rectangle(
+                    20.0 * self.ui_scale,
+                    y_offset,
+                    200.0 * self.ui_scale,
+                    20.0 * self.ui_scale,
+                    Color::new(0.0, 0.0, 0.3, 1.0),
+                );
+                let blood_width = 200.0 * self.ui_scale * (blood.current / blood.maximum);
+                draw_rectangle(
+                    20.0 * self.ui_scale,
+                    y_offset,
+                    blood_width,
+                    20.0 * self.ui_scale,
+                    BLUE,
+                );
+                self.draw_text_with_font(
+                    "Blood",
+                    20.0 * self.ui_scale,
+                    y_offset - 5.0 * self.ui_scale,
+                    16.0 * self.ui_scale,
+                    WHITE,
+                );
+                y_offset += 30.0 * self.ui_scale;
             }
 
             // Phase info
@@ -1376,27 +1448,27 @@ impl Renderer {
     }
 
     fn draw_debug_messages(&self, game_state: &GameState) {
-        let right_margin = 20.0;
-        let debug_x = screen_width() - 400.0 - right_margin;
-        let mut debug_y = 50.0;
+        let right_margin = 20.0 * self.ui_scale;
+        let debug_x = screen_width() - 400.0 * self.ui_scale - right_margin;
+        let mut debug_y = 50.0 * self.ui_scale;
 
         // Draw background for debug messages
         draw_rectangle(
-            debug_x - 10.0,
-            debug_y - 30.0,
-            410.0,
-            (game_state.debug_messages.len() as f32 * 18.0) + 40.0,
+            debug_x - 10.0 * self.ui_scale,
+            debug_y - 30.0 * self.ui_scale,
+            410.0 * self.ui_scale,
+            (game_state.debug_messages.len() as f32 * 18.0 * self.ui_scale) + 40.0 * self.ui_scale,
             Color::new(0.0, 0.0, 0.0, 0.7),
         );
 
         // Draw title
-        self.draw_text_with_font("DEBUG LOG", debug_x, debug_y, 16.0, YELLOW);
-        debug_y += 25.0;
+        self.draw_text_with_font("DEBUG LOG", debug_x, debug_y, 16.0 * self.ui_scale, YELLOW);
+        debug_y += 25.0 * self.ui_scale;
 
         // Draw messages
         for message in &game_state.debug_messages {
-            self.draw_text_with_font(message, debug_x, debug_y, 12.0, WHITE);
-            debug_y += 18.0;
+            self.draw_text_with_font(message, debug_x, debug_y, 12.0 * self.ui_scale, WHITE);
+            debug_y += 18.0 * self.ui_scale;
         }
     }
 }
