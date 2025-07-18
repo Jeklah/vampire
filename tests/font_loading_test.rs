@@ -95,13 +95,13 @@ fn test_fullscreen_mode_message_added_to_debug_log() {
 
     // Simulate windowed mode initialization message
     game_state
-        .add_debug_message("Game started in windowed mode (F11 to toggle fullscreen)".to_string());
+        .add_debug_message("Game started in fullscreen mode (F11 to toggle windowed)".to_string());
 
     // Verify the message was added
     assert_eq!(game_state.debug_messages.len(), 1);
     assert_eq!(
         game_state.debug_messages[0],
-        "Game started in windowed mode (F11 to toggle fullscreen)"
+        "Game started in fullscreen mode (F11 to toggle windowed)"
     );
 }
 
@@ -113,7 +113,7 @@ fn test_startup_messages_order() {
     // Add messages in startup order
     game_state.add_debug_message("Font loaded successfully from embedded data".to_string());
     game_state
-        .add_debug_message("Game started in windowed mode (F11 to toggle fullscreen)".to_string());
+        .add_debug_message("Game started in fullscreen mode (F11 to toggle windowed)".to_string());
 
     // Verify correct order
     assert_eq!(game_state.debug_messages.len(), 2);
@@ -123,7 +123,7 @@ fn test_startup_messages_order() {
     );
     assert_eq!(
         game_state.debug_messages[1],
-        "Game started in windowed mode (F11 to toggle fullscreen)"
+        "Game started in fullscreen mode (F11 to toggle windowed)"
     );
 }
 
@@ -156,7 +156,7 @@ fn test_complete_startup_sequence_with_fullscreen() {
     // Add font loading message (this happens early in main())
     game_state.add_debug_message("Font loaded successfully from embedded data".to_string());
     game_state
-        .add_debug_message("Game started in windowed mode (F11 to toggle fullscreen)".to_string());
+        .add_debug_message("Game started in fullscreen mode (F11 to toggle windowed)".to_string());
 
     // Verify correct order and content
     assert_eq!(game_state.debug_messages.len(), 2);
@@ -166,10 +166,10 @@ fn test_complete_startup_sequence_with_fullscreen() {
     );
     assert_eq!(
         game_state.debug_messages[1],
-        "Game started in windowed mode (F11 to toggle fullscreen)"
+        "Game started in fullscreen mode (F11 to toggle windowed)"
     );
 
-    // Simulate user toggling fullscreen with F11
+    // Simulate user toggling to windowed with F11
     game_state.add_debug_message("Switched to windowed mode".to_string());
 
     // Verify the toggle message appears after startup messages
