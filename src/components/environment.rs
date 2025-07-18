@@ -159,43 +159,43 @@ impl GroundTile {
 
         match tile_type {
             TileType::Grass => {
-                // Pre-generate grass patch positions
-                for i in 0..8 {
-                    for j in 0..4 {
+                // Pre-generate grass patch positions using iterator patterns
+                (0..8).for_each(|i| {
+                    (0..4).for_each(|j| {
                         let x_offset = (i as f32 * 8.0) + rand::gen_range(-4.0, 4.0);
                         let y_offset = (j as f32 * 16.0) + rand::gen_range(-4.0, 4.0);
                         grass_patches.push((x_offset, y_offset, 4.0, 8.0));
-                    }
-                }
+                    });
+                });
             }
             TileType::DeadGrass => {
-                // Pre-generate dead grass patch positions
-                for i in 0..6 {
-                    for j in 0..3 {
+                // Pre-generate dead grass patch positions using iterator patterns
+                (0..6).for_each(|i| {
+                    (0..3).for_each(|j| {
                         let x_offset = (i as f32 * 10.0) + rand::gen_range(-4.0, 4.0);
                         let y_offset = (j as f32 * 20.0) + rand::gen_range(-4.0, 4.0);
                         grass_patches.push((x_offset, y_offset, 4.0, 8.0));
-                    }
-                }
+                    });
+                });
             }
             TileType::Dirt => {
-                // Pre-generate dirt spot positions
-                for _i in 0..12 {
+                // Pre-generate dirt spot positions using iterator pattern
+                (0..12).for_each(|_| {
                     let x_offset = rand::gen_range(0.0, 64.0);
                     let y_offset = rand::gen_range(0.0, 64.0);
                     let radius = rand::gen_range(2.0, 4.0);
                     dirt_spots.push((x_offset, y_offset, radius));
-                }
+                });
             }
             TileType::Stone => {
-                // Pre-generate stone block positions
-                for i in 0..4 {
-                    for j in 0..4 {
+                // Pre-generate stone block positions using iterator patterns
+                (0..4).for_each(|i| {
+                    (0..4).for_each(|j| {
                         let x_offset = i as f32 * 16.0;
                         let y_offset = j as f32 * 16.0;
                         stone_blocks.push((x_offset, y_offset, 12.0, 12.0));
-                    }
-                }
+                    });
+                });
             }
         }
 
