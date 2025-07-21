@@ -224,12 +224,11 @@ impl ShelterSystem {
 
     /// Check if a position has ground (is within the ground area)
     pub fn has_ground_at_position(x: f32, y: f32) -> bool {
-        let world_width = 1600.0;
-        let world_height = 1200.0;
-        let ground_level = 640.0; // Ground starts at y = 640 (aligned with tile positions)
-
         // Check if position is within world bounds and at or below ground level
-        x >= 0.0 && x <= world_width && y >= ground_level && y <= world_height
+        x >= 0.0
+            && x <= crate::systems::world::GAME_WORLD_WIDTH
+            && y >= crate::systems::world::GROUND_LEVEL
+            && y <= crate::systems::world::GAME_WORLD_HEIGHT
     }
 
     /// Spawn a shelter at the specified location with ground validation
