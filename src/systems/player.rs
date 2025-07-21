@@ -92,8 +92,15 @@ impl PlayerSystem {
             // Direction is now calculated from velocity when needed for rendering
 
             // Keep player within world bounds
-            player.position.x = player.position.x.clamp(0.0, 1600.0);
-            player.position.y = player.position.y.clamp(640.0, 1200.0); // Can't go above ground level
+            player.position.x = player
+                .position
+                .x
+                .clamp(0.0, crate::systems::world::GAME_WORLD_WIDTH);
+            player.position.y = player.position.y.clamp(
+                crate::systems::world::GROUND_LEVEL,
+                crate::systems::world::GAME_WORLD_HEIGHT,
+            );
+            // Can't go above ground level
         }
     }
 
