@@ -7,6 +7,11 @@ use crate::components::*;
 use macroquad::prelude::*;
 use std::collections::HashMap;
 
+/// Game world dimension constants
+pub const GAME_WORLD_WIDTH: f32 = 2560.0;
+pub const GAME_WORLD_HEIGHT: f32 = 1440.0;
+pub const GROUND_LEVEL: f32 = 640.0;
+
 /// World system responsible for entity spawning and world management
 pub struct WorldSystem;
 
@@ -311,9 +316,9 @@ impl WorldSystem {
     /// Initialize the starfield background
     pub fn initialize_starfield(stars: &mut Vec<Star>) {
         stars.clear();
-        (0..200).for_each(|_| {
-            let x = rand::gen_range(0.0, 1600.0);
-            let y = rand::gen_range(0.0, 1200.0);
+        (0..300).for_each(|_| {
+            let x = rand::gen_range(0.0, GAME_WORLD_WIDTH);
+            let y = rand::gen_range(0.0, GAME_WORLD_HEIGHT);
             stars.push(Star::new(x, y));
         });
     }
@@ -328,15 +333,18 @@ impl WorldSystem {
         ground_tiles.clear();
 
         let tile_size = 64.0;
-        let world_width = 1600.0;
-        let world_height = 1200.0;
-        let ground_level = 640.0; // Ground starts at y = 640 (aligned with tile positions)
 
-        for x in (0..((world_width / tile_size) as i32)).map(|i| i as f32 * tile_size) {
+        // Calculate how many tiles we need to cover the full game world width
+        let tiles_across = (GAME_WORLD_WIDTH / tile_size).ceil() as i32;
+        // Calculate how many tiles we need from ground level to bottom of game world
+        let tiles_down = ((GAME_WORLD_HEIGHT - GROUND_LEVEL) / tile_size).ceil() as i32;
+
+        for x in (0..tiles_across).map(|i| i as f32 * tile_size) {
             // Ensure tiles start exactly at ground level
-            let start_tile_y = ((ground_level / tile_size).ceil() as i32) * tile_size as i32;
-            for y in (start_tile_y..((world_height / tile_size) as i32 * tile_size as i32))
-                .step_by(tile_size as usize)
+            let start_tile_y = ((GROUND_LEVEL / tile_size).ceil() as i32) * tile_size as i32;
+            // Generate tiles from ground level to bottom of game world
+            for y in (0..tiles_down)
+                .map(|i| start_tile_y + (i * tile_size as i32))
                 .map(|i| i as f32)
             {
                 let tile_type = Self::determine_tile_type();
@@ -357,37 +365,26 @@ impl WorldSystem {
 
     /// Check if a position has ground (is within the ground area)
     pub fn has_ground_at_position(x: f32, y: f32) -> bool {
-        let world_width = 1600.0;
-        let world_height = 1200.0;
-        let ground_level = 640.0; // Ground starts at y = 640 (aligned with tile positions)
-
         // Check if position is within world bounds and at or below ground level
-        x >= 0.0 && x <= world_width && y >= ground_level && y <= world_height
+        x >= 0.0 && x <= GAME_WORLD_WIDTH && y >= GROUND_LEVEL && y <= GAME_WORLD_HEIGHT
     }
 
     /// Generate a random position within the ground area
     pub fn generate_random_ground_position() -> (f32, f32) {
-        let world_width = 1600.0;
-        let world_height = 1200.0;
-        let ground_level = 640.0;
-
         // Generate random position within ground area with some padding from edges
         let padding = 64.0;
-        let x = rand::gen_range(padding, world_width - padding);
-        let y = rand::gen_range(ground_level + padding, world_height - padding);
+        let x = rand::gen_range(padding, GAME_WORLD_WIDTH - padding);
+        let y = rand::gen_range(GROUND_LEVEL + padding, GAME_WORLD_HEIGHT - padding);
 
         (x, y)
     }
 
     /// Check if a position is close enough to ground area to be relocated
     pub fn is_relocatable_to_ground(x: f32, y: f32) -> bool {
-        let world_width = 1600.0;
-        let ground_level = 640.0;
-
         // Only relocate if:
         // 1. X coordinate is within world bounds
         // 2. Y coordinate is not too far above ground (within 100 units)
-        x >= 0.0 && x <= world_width && y >= (ground_level - 100.0) && y < ground_level
+        x >= 0.0 && x <= GAME_WORLD_WIDTH && y >= (GROUND_LEVEL - 100.0) && y < GROUND_LEVEL
     }
 
     /// Spawn a clan member at a specific location
@@ -473,13 +470,19 @@ impl WorldSystem {
 
     /// Get spawn bounds for different entity types
     pub fn get_spawn_bounds(entity_type: &EntityType) -> (f32, f32, f32, f32) {
+        // Return (min_x, max_x, min_y, max_y) based on entity type
         match entity_type {
-            EntityType::Player => (350.0, 450.0, 640.0, 740.0),
-            EntityType::ClanLeader(_) => (200.0, 1200.0, 640.0, 750.0),
-            EntityType::ClanMember(_) => (100.0, 1400.0, 640.0, 800.0),
-            EntityType::HostileInfected => (50.0, 1350.0, 640.0, 850.0),
-            EntityType::Animal => (50.0, 1200.0, 650.0, 1150.0),
-            EntityType::Shelter => (0.0, 1600.0, 0.0, 800.0),
+            EntityType::Player => (350.0, 450.0, GROUND_LEVEL, 740.0),
+            EntityType::ClanLeader(_) => (200.0, GAME_WORLD_WIDTH - 400.0, GROUND_LEVEL, 750.0),
+            EntityType::ClanMember(_) => (100.0, GAME_WORLD_WIDTH - 200.0, GROUND_LEVEL, 800.0),
+            EntityType::HostileInfected => (50.0, GAME_WORLD_WIDTH - 250.0, GROUND_LEVEL, 850.0),
+            EntityType::Animal => (
+                50.0,
+                GAME_WORLD_WIDTH - 400.0,
+                650.0,
+                GAME_WORLD_HEIGHT - 50.0,
+            ),
+            EntityType::Shelter => (0.0, GAME_WORLD_WIDTH, 0.0, 800.0),
         }
     }
 
