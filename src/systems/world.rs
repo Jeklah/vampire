@@ -24,6 +24,7 @@ impl WorldSystem {
         moon: &mut Moon,
         ground_tiles: &mut Vec<GroundTile>,
         next_entity_id: &mut u32,
+        debug_messages: &mut Vec<String>,
     ) -> u32 {
         // Clear existing entities
         entities.clear();
@@ -44,7 +45,7 @@ impl WorldSystem {
         Self::spawn_animal_group(entities, next_entity_id, 12);
 
         // Spawn shelters throughout the world
-        Self::spawn_world_shelters(entities, next_entity_id);
+        Self::spawn_world_shelters(entities, next_entity_id, debug_messages);
 
         // Initialize environment
         Self::initialize_starfield(stars);
@@ -504,7 +505,11 @@ impl WorldSystem {
     }
 
     /// Spawn shelters throughout the world for vampire protection
-    fn spawn_world_shelters(entities: &mut Vec<GameEntity>, next_entity_id: &mut u32) {
+    fn spawn_world_shelters(
+        entities: &mut Vec<GameEntity>,
+        next_entity_id: &mut u32,
+        debug_messages: &mut Vec<String>,
+    ) {
         use crate::components::{ShelterCondition, ShelterType};
         use crate::systems::ShelterSystem;
 
@@ -684,12 +689,12 @@ impl WorldSystem {
                 }
             } else {
                 // If too far from ground area, skip this shelter
-                println!(
-                    "Info: Skipping shelter '{}' at ({}, {}) - too far from ground area",
+                debug_messages.push(format!(
+                    "Skipping shelter '{}' at ({}, {}) - too far from ground area",
                     name.as_ref().unwrap_or(&"Unnamed"),
                     desired_x,
                     desired_y
-                );
+                ));
                 continue;
             };
 
@@ -766,7 +771,15 @@ mod tests {
         assert_eq!(bounds, (350.0, 450.0, 640.0, 740.0));
 
         let bounds = WorldSystem::get_spawn_bounds(&EntityType::Animal);
-        assert_eq!(bounds, (50.0, 1200.0, 650.0, 1150.0));
+        assert_eq!(
+            bounds,
+            (
+                50.0,
+                GAME_WORLD_WIDTH - 400.0,
+                650.0,
+                GAME_WORLD_HEIGHT - 50.0
+            )
+        );
     }
 
     #[test]
