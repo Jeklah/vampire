@@ -65,13 +65,13 @@ fn test_world_system_ground_validation() {
 
 #[test]
 fn test_generate_random_ground_position() {
-    // Test random ground position generation
+    // Test random ground position generation in expanded world
     for _ in 0..10 {
         let (x, y) = systems::world::WorldSystem::generate_random_ground_position();
-        assert!(x >= 64.0); // Should be within padded bounds
-        assert!(x <= 1536.0); // Should be within padded bounds
-        assert!(y >= 704.0); // Should be at ground level + padding (640 + 64)
-        assert!(y <= 1136.0); // Should be within world bounds - padding
+        assert!(x >= -1000.0); // Should be within expanded bounds
+        assert!(x <= 3560.0); // Should be within expanded bounds (2560 + 1000)
+        assert!(y >= 0.0); // Can start from Y=0 (above horizon)
+        assert!(y <= 2880.0); // Should be within expanded world bounds (1440 * 2)
     }
 }
 
@@ -138,6 +138,71 @@ fn test_safe_shelter_spawning() {
     );
     assert!(result.is_none());
     assert_eq!(entities.len(), 1); // Should still be 1, no new entity added
+}
+
+#[test]
+fn test_ensure_ground_near_player() {
+    let mut ground_tiles = Vec::new();
+    let mut debug_messages = Vec::new();
+
+    // Test with no existing ground tiles near player
+    let player_x = 500.0;
+    let player_y = 700.0; // Below ground level
+
+    systems::world::WorldSystem::ensure_ground_near_player(
+        &mut ground_tiles,
+        player_x,
+        player_y,
+        &mut debug_messages,
+    );
+
+    // Should have spawned ground tiles
+    assert!(!ground_tiles.is_empty());
+    assert!(!debug_messages.is_empty());
+
+    // Test with player above ground level - tiles can now spawn anywhere
+    let mut ground_tiles2 = Vec::new();
+    let mut debug_messages2 = Vec::new();
+    let player_y_above = 300.0; // Well above horizon line
+
+    systems::world::WorldSystem::ensure_ground_near_player(
+        &mut ground_tiles2,
+        player_x,
+        player_y_above,
+        &mut debug_messages2,
+    );
+
+    // Should spawn tiles in expanded world (above horizon allowed)
+    assert!(!ground_tiles2.is_empty());
+
+    // Test with player far outside original world bounds
+    let mut ground_tiles3 = Vec::new();
+    let mut debug_messages3 = Vec::new();
+    let player_x_outside = -500.0; // Left of original world bounds
+    let player_y_outside = 100.0; // Above horizon
+
+    systems::world::WorldSystem::ensure_ground_near_player(
+        &mut ground_tiles3,
+        player_x_outside,
+        player_y_outside,
+        &mut debug_messages3,
+    );
+
+    // Should spawn tiles even outside original bounds
+    assert!(!ground_tiles3.is_empty());
+
+    // Test with existing ground coverage - should not spawn many new tiles
+    let initial_count = ground_tiles.len();
+    systems::world::WorldSystem::ensure_ground_near_player(
+        &mut ground_tiles,
+        player_x,
+        player_y,
+        &mut debug_messages,
+    );
+
+    // Should not spawn many new tiles since area is already covered
+    let new_count = ground_tiles.len();
+    assert!(new_count - initial_count < 100); // Allow even more tiles with improved generation
 }
 
 #[test]
