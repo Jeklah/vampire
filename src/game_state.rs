@@ -43,6 +43,10 @@ pub struct GameState {
     pub ground_update_timer: f32,
     pub accumulated_horizon_movement: f32,
 
+    // Ground generation tracking for all directions
+    pub last_player_x: f32,
+    pub movement_threshold: f32,
+
     // Debug message log
     pub debug_messages: Vec<String>,
 
@@ -86,6 +90,8 @@ impl GameState {
             is_moving_toward_horizon: false,
             ground_update_timer: 0.0,
             accumulated_horizon_movement: 0.0,
+            last_player_x: 400.0,     // Player spawn X position
+            movement_threshold: 32.0, // Generate ground when player moves 32 pixels
             debug_messages: Vec::new(),
         };
 
@@ -128,6 +134,7 @@ impl GameState {
         self.update_objectives_system();
         self.update_horizon_movement_detection();
         self.update_horizon_ground_effect();
+        self.ensure_ground_near_player();
         self.update_camera();
         self.update_phase_progression();
     }
@@ -585,6 +592,45 @@ impl GameState {
         } else {
             // Reset timer when not moving toward horizon
             self.ground_update_timer = 0.0;
+        }
+    }
+
+    /// Ensure ground tiles exist near the player position with movement-based generation
+    fn ensure_ground_near_player(&mut self) {
+        if let Some(player) = self
+            .entities
+            .iter()
+            .find(|e| matches!(e.entity_type, EntityType::Player))
+        {
+            use crate::systems::world::WorldSystem;
+
+            // Check if player has moved significantly in any direction
+            let movement_x = (player.position.x - self.last_player_x).abs();
+            let movement_y = (player.position.y - self.last_player_y).abs();
+            let significant_movement =
+                movement_x > self.movement_threshold || movement_y > self.movement_threshold;
+
+            // Generate ground on significant movement or periodically
+            if significant_movement || self.ground_update_timer <= 0.0 {
+                WorldSystem::ensure_ground_near_player(
+                    &mut self.ground_tiles,
+                    player.position.x,
+                    player.position.y,
+                    &mut self.debug_messages,
+                );
+
+                // Update tracking
+                if significant_movement {
+                    self.last_player_x = player.position.x;
+                    self.ground_update_timer = 0.5; // Reset timer after movement-based generation
+                }
+            }
+
+            // Decrement timer for periodic updates
+            self.ground_update_timer -= 1.0 / 60.0; // Assume 60 FPS
+            if self.ground_update_timer < 0.0 {
+                self.ground_update_timer = 2.0; // Generate every 2 seconds as fallback
+            }
         }
     }
 }
