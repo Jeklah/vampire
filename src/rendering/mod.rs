@@ -131,6 +131,9 @@ impl Renderer {
         // Draw ground with smart caching
         self.draw_ground_cached(game_state, camera_offset_x, camera_offset_y);
 
+        // Draw subtle horizon indicator (only when moving toward horizon)
+        self.draw_horizon_indicator(game_state, camera_offset_x, camera_offset_y);
+
         // Draw stars and moon (always draw but less detail in performance mode)
         self.draw_stars(game_state, camera_offset_x, camera_offset_y);
         self.draw_moon(game_state, camera_offset_x, camera_offset_y);
@@ -897,6 +900,41 @@ impl Renderer {
             TileType::Stone => Color::new(0.5, 0.5, 0.5, 1.0),
         };
         draw_rectangle(x, y, size, size, color);
+    }
+
+    fn draw_horizon_indicator(
+        &self,
+        game_state: &GameState,
+        _camera_offset_x: f32,
+        camera_offset_y: f32,
+    ) {
+        use crate::systems::world::HORIZON_LINE;
+
+        // Only draw when player is moving toward horizon
+        if game_state.is_moving_toward_horizon {
+            let horizon_screen_y = HORIZON_LINE * self.zoom_level + camera_offset_y;
+
+            // Draw a very subtle indicator line at the horizon
+            if horizon_screen_y >= 0.0 && horizon_screen_y <= screen_height() {
+                draw_line(
+                    0.0,
+                    horizon_screen_y,
+                    screen_width(),
+                    horizon_screen_y,
+                    1.0,
+                    Color::new(0.6, 0.6, 0.8, 0.3), // Very subtle blue line
+                );
+
+                // Add text indicator in corner
+                self.draw_text_with_font(
+                    "Moving toward horizon",
+                    10.0,
+                    30.0,
+                    20.0,
+                    Color::new(0.8, 0.8, 1.0, 0.8),
+                );
+            }
+        }
     }
 
     fn draw_moon(&self, game_state: &GameState, _camera_offset_x: f32, _camera_offset_y: f32) {
