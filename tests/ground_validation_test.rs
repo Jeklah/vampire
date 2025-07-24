@@ -198,6 +198,7 @@ fn test_world_initialization_with_ground_validation() {
     let mut next_entity_id = 0;
 
     // Initialize the world
+    let mut debug_messages = Vec::new();
     let player_id = systems::world::WorldSystem::initialize_world(
         &mut entities,
         &mut clans,
@@ -205,6 +206,7 @@ fn test_world_initialization_with_ground_validation() {
         &mut moon,
         &mut ground_tiles,
         &mut next_entity_id,
+        &mut debug_messages,
     );
 
     // Check that ground tiles were created
