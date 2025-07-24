@@ -157,8 +157,10 @@ impl Renderer {
         // Draw UI
         self.draw_ui(game_state);
 
-        // Draw debug messages
-        self.draw_debug_messages(game_state);
+        // Draw debug messages (only if toggle is enabled)
+        if game_state.show_debug_messages {
+            self.draw_debug_messages(game_state);
+        }
 
         // Draw menus
         if game_state.paused {
@@ -496,7 +498,7 @@ impl Renderer {
         // Controls
         let controls_y = screen_height() - 100.0;
         self.draw_text_with_font(
-            "Controls: WASD=Move, R=Feed, E=Interact, Space=Attack, Tab=Clans, L=Legend, H=Help, Esc=Pause",
+            "Controls: WASD=Move, R=Feed, E=Interact, Space=Attack, Tab=Clans, L=Legend, H=Help, M=Messages, Esc=Pause",
             20.0,
             controls_y,
             16.0,
@@ -897,15 +899,13 @@ impl Renderer {
         draw_rectangle(x, y, size, size, color);
     }
 
-    fn draw_moon(&self, game_state: &GameState, camera_offset_x: f32, camera_offset_y: f32) {
-        let screen_x = game_state.moon.x * self.zoom_level + camera_offset_x;
-        let screen_y = game_state.moon.y * self.zoom_level + camera_offset_y;
+    fn draw_moon(&self, game_state: &GameState, _camera_offset_x: f32, _camera_offset_y: f32) {
+        // Position moon relative to camera view to ensure it's always visible in the sky
+        // Place it in the upper right portion of the screen
+        let screen_x = screen_width() * 0.75; // 75% across the screen width
+        let screen_y = screen_height() * 0.15; // 15% down from top (high in the sky)
 
-        // Only draw moon if on screen
-        if screen_x > -50.0
-            && screen_x < screen_width() + 50.0
-            && screen_y > -50.0
-            && screen_y < screen_height() + 50.0
+        // Moon is always drawn since it's positioned relative to screen, not world
         {
             let moon_size = if game_state.time.is_day() { 22.0 } else { 38.0 }; // Larger for zoom
             let moon_alpha = if game_state.time.is_day() {
