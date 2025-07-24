@@ -222,13 +222,10 @@ impl ShelterSystem {
         base_sunlight_damage
     }
 
-    /// Check if a position has ground (is within the ground area)
-    pub fn has_ground_at_position(x: f32, y: f32) -> bool {
-        // Check if position is within world bounds and at or below ground level
-        x >= 0.0
-            && x <= crate::systems::world::GAME_WORLD_WIDTH
-            && y >= crate::systems::world::GROUND_LEVEL
-            && y <= crate::systems::world::GAME_WORLD_HEIGHT
+    /// Check if a position has ground (expanded world - no boundary restrictions)
+    pub fn has_ground_at_position(_x: f32, _y: f32) -> bool {
+        // In expanded world, allow ground anywhere
+        true // Always allow ground placement anywhere in expanded world
     }
 
     /// Spawn a shelter at the specified location with ground validation
