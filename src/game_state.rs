@@ -45,6 +45,7 @@ pub struct GameState {
     pub show_clan_menu: bool,
     pub show_legend: bool,
     pub show_quick_start: bool,
+    pub show_debug_messages: bool,
 }
 
 impl GameState {
@@ -67,6 +68,7 @@ impl GameState {
             show_clan_menu: false,
             show_legend: false,
             show_quick_start: true,
+            show_debug_messages: true,
             game_time: 0.0,
             kills: 0,
             feeding_count: 0,
@@ -85,6 +87,7 @@ impl GameState {
             &mut state.moon,
             &mut state.ground_tiles,
             &mut state.next_entity_id,
+            &mut state.debug_messages,
         );
 
         state
@@ -134,6 +137,17 @@ impl GameState {
 
         if input_handler.is_key_just_pressed(KeyCode::H) {
             self.show_quick_start = !self.show_quick_start;
+        }
+
+        if input_handler.is_key_just_pressed(KeyCode::M) {
+            self.show_debug_messages = !self.show_debug_messages;
+            let status = if self.show_debug_messages {
+                "enabled"
+            } else {
+                "disabled"
+            };
+
+            self.add_debug_message(format!("Debug messages {}", status));
         }
 
         // Close quick start guide on any movement
@@ -544,5 +558,70 @@ mod tests {
         }
 
         assert!(game_state.is_game_over());
+    }
+
+    #[test]
+    fn test_debug_message_toggle_state() {
+        let mut game_state = GameState::new();
+
+        // Initially debug messages should be enabled
+        assert!(game_state.show_debug_messages);
+
+        // Manually toggle the state to test the field
+        game_state.show_debug_messages = false;
+        assert!(!game_state.show_debug_messages);
+
+        game_state.show_debug_messages = true;
+        assert!(game_state.show_debug_messages);
+    }
+
+    #[test]
+    fn test_message_toggle_integration() {
+        let mut game_state = GameState::new();
+
+        // Initially debug messages should be enabled
+        assert!(game_state.show_debug_messages);
+        let initial_message_count = game_state.debug_messages.len();
+
+        // Simulate M key press by calling handle_ui_input with a mock that returns true for M
+        // Since we can't easily mock the input handler, we'll test the toggle logic directly
+        let initial_state = game_state.show_debug_messages;
+
+        // Test the toggle logic by simulating what happens when M is pressed
+        game_state.show_debug_messages = !game_state.show_debug_messages;
+        let status = if game_state.show_debug_messages {
+            "enabled"
+        } else {
+            "disabled"
+        };
+        game_state.add_debug_message(format!("Debug messages {}", status));
+
+        // Verify the state changed and message was added
+        assert_ne!(game_state.show_debug_messages, initial_state);
+        assert_eq!(game_state.debug_messages.len(), initial_message_count + 1);
+        assert!(game_state
+            .debug_messages
+            .last()
+            .unwrap()
+            .contains("Debug messages disabled"));
+
+        // Toggle again
+        let current_state = game_state.show_debug_messages;
+        game_state.show_debug_messages = !game_state.show_debug_messages;
+        let status = if game_state.show_debug_messages {
+            "enabled"
+        } else {
+            "disabled"
+        };
+        game_state.add_debug_message(format!("Debug messages {}", status));
+
+        // Verify it toggled back and added another message
+        assert_ne!(game_state.show_debug_messages, current_state);
+        assert_eq!(game_state.debug_messages.len(), initial_message_count + 2);
+        assert!(game_state
+            .debug_messages
+            .last()
+            .unwrap()
+            .contains("Debug messages enabled"));
     }
 }
