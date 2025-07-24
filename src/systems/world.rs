@@ -341,19 +341,18 @@ impl WorldSystem {
 
         let tile_size = 64.0;
 
-        // Calculate how many tiles we need to cover the full game world width
-        let tiles_across = (GAME_WORLD_WIDTH / tile_size).ceil() as i32;
-        // Calculate how many tiles we need from ground level to bottom of game world
-        let tiles_down = ((GAME_WORLD_HEIGHT - GROUND_LEVEL) / tile_size).ceil() as i32;
+        // Generate initial ground in expanded area around the original world
+        let extended_width = GAME_WORLD_WIDTH + 2000.0; // Add 1000 pixels on each side
+        let extended_start_x = -1000.0; // Start 1000 pixels to the left
 
-        for x in (0..tiles_across).map(|i| i as f32 * tile_size) {
-            // Ensure tiles start exactly at ground level
-            let start_tile_y = ((GROUND_LEVEL / tile_size).ceil() as i32) * tile_size as i32;
-            // Generate tiles from ground level to bottom of game world
-            for y in (0..tiles_down)
-                .map(|i| start_tile_y + (i * tile_size as i32))
-                .map(|i| i as f32)
-            {
+        // Calculate tiles for expanded area
+        let tiles_across = (extended_width / tile_size).ceil() as i32;
+        // Cover area from above horizon to expanded bottom
+        let tiles_down = ((GAME_WORLD_HEIGHT * 2.0) / tile_size).ceil() as i32;
+
+        for x in (0..tiles_across).map(|i| extended_start_x + (i as f32 * tile_size)) {
+            // Start from Y=0 (above horizon) to expanded bottom
+            for y in (0..tiles_down).map(|i| i as f32 * tile_size) {
                 let tile_type = Self::determine_tile_type();
                 ground_tiles.push(GroundTile::new(x, y, tile_type));
             }
@@ -424,14 +423,14 @@ impl WorldSystem {
             }
         }
 
-        // Clean up tiles using screen-relative bounds instead of fixed distance
+        // Minimal cleanup - only remove tiles that are extremely far from player
+        // This preserves ground tiles behind the player for persistent world feeling
         let before_cleanup = ground_tiles.len();
+        let very_far_distance = 5000.0; // Much larger distance before cleanup
         ground_tiles.retain(|tile| {
-            let x_in_range = (tile.x - player_x).abs() < cleanup_x_range;
-            let y_in_range = (tile.y - player_y).abs() < cleanup_y_range;
-            let not_too_far_down = tile.y < GAME_WORLD_HEIGHT + 200.0;
-
-            x_in_range && y_in_range && not_too_far_down
+            let distance_from_player =
+                ((tile.x - player_x).powi(2) + (tile.y - player_y).powi(2)).sqrt();
+            distance_from_player < very_far_distance
         });
         let after_cleanup = ground_tiles.len();
         let tiles_removed = before_cleanup - after_cleanup;
@@ -458,28 +457,165 @@ impl WorldSystem {
         }
     }
 
-    /// Check if a position has ground (is within the ground area)
-    pub fn has_ground_at_position(x: f32, y: f32) -> bool {
-        // Check if position is within world bounds and at or below ground level
-        x >= 0.0 && x <= GAME_WORLD_WIDTH && y >= GROUND_LEVEL && y <= GAME_WORLD_HEIGHT
+    /// Check if a position has ground (expanded to allow infinite world)
+    pub fn has_ground_at_position(_x: f32, _y: f32) -> bool {
+        // Allow ground anywhere - no boundary restrictions for expanded world
+        true // Always allow ground placement anywhere
     }
 
-    /// Generate a random position within the ground area
+    /// Generate a random position within an expanded ground area
     pub fn generate_random_ground_position() -> (f32, f32) {
-        // Generate random position within ground area with some padding from edges
-        let padding = 64.0;
-        let x = rand::gen_range(padding, GAME_WORLD_WIDTH - padding);
-        let y = rand::gen_range(GROUND_LEVEL + padding, GAME_WORLD_HEIGHT - padding);
+        // Generate random position in expanded area
+        let x = rand::gen_range(-1000.0, GAME_WORLD_WIDTH + 1000.0); // Extend beyond world bounds
+        let y = rand::gen_range(0.0, GAME_WORLD_HEIGHT * 2.0); // Allow above horizon and expand down
 
         (x, y)
     }
 
-    /// Check if a position is close enough to ground area to be relocated
-    pub fn is_relocatable_to_ground(x: f32, y: f32) -> bool {
-        // Only relocate if:
-        // 1. X coordinate is within world bounds
-        // 2. Y coordinate is not too far above ground (within 100 units)
-        x >= 0.0 && x <= GAME_WORLD_WIDTH && y >= (GROUND_LEVEL - 100.0) && y < GROUND_LEVEL
+    /// Check if a position is close enough to ground area to be relocated (expanded world)
+    pub fn is_relocatable_to_ground(_x: f32, _y: f32) -> bool {
+        // In expanded world, allow relocation from anywhere
+        true // Always allow relocation in expanded world
+    }
+
+    /// Ensure ground tiles exist near the player, spawning them anywhere needed (including above horizon)
+    pub fn ensure_ground_near_player(
+        ground_tiles: &mut Vec<GroundTile>,
+        player_x: f32,
+        player_y: f32,
+        debug_messages: &mut Vec<String>,
+    ) {
+        let tile_size = 64.0;
+        let check_radius_x = 640.0; // Larger check area for better coverage in all directions
+        let check_radius_y = 480.0; // Larger check area for better coverage in all directions
+
+        // Define the area around the player to check for ground - no world boundary restrictions
+        let min_check_x = player_x - check_radius_x; // Can go negative (left of world)
+        let max_check_x = player_x + check_radius_x; // Can go beyond world width
+        let min_check_y = player_y - check_radius_y; // Can go above horizon line
+        let max_check_y = player_y + check_radius_y; // Can go beyond world height
+
+        // Count existing ground tiles in the area
+        let existing_tiles = ground_tiles
+            .iter()
+            .filter(|tile| {
+                tile.x >= min_check_x
+                    && tile.x <= max_check_x
+                    && tile.y >= min_check_y
+                    && tile.y <= max_check_y
+            })
+            .count();
+
+        // Calculate how many tiles we should have in this area (reduced expectations)
+        let tiles_across = ((max_check_x - min_check_x) / tile_size).ceil() as i32;
+        let tiles_down = ((max_check_y - min_check_y) / tile_size).ceil() as i32;
+        let expected_tiles = (tiles_across * tiles_down) as usize;
+
+        // More aggressive spawning for better coverage in all directions
+        if existing_tiles < expected_tiles * 3 / 4 {
+            let mut tiles_added = 0;
+            let max_tiles_to_add = 64; // Allow more tiles for better coverage in expanded world
+
+            // Multiple passes for better coverage
+            for pass in 0..2 {
+                // First pass: regular grid, second pass: fill gaps
+                let step_size = if pass == 0 { 1 } else { 2 };
+
+                // Spawn ground tiles in a grid pattern around the player
+                for i in (0..tiles_across).step_by(step_size) {
+                    for j in (0..tiles_down).step_by(step_size) {
+                        if tiles_added >= max_tiles_to_add {
+                            break;
+                        }
+
+                        let x = min_check_x + (i as f32 * tile_size);
+                        let y = min_check_y + (j as f32 * tile_size);
+
+                        // Check if a tile already exists at this position
+                        let tile_exists = ground_tiles.iter().any(|tile| {
+                            (tile.x - x).abs() < tile_size * 0.5
+                                && (tile.y - y).abs() < tile_size * 0.5
+                        });
+
+                        if !tile_exists {
+                            let tile_type = Self::determine_tile_type();
+                            ground_tiles.push(GroundTile::new(x, y, tile_type));
+                            tiles_added += 1;
+                        }
+                    }
+                }
+
+                if tiles_added >= max_tiles_to_add {
+                    break;
+                }
+            }
+
+            if tiles_added > 0 {
+                debug_messages.push(format!(
+                    "AUTO-SPAWN: {} ground tiles near player at ({:.0}, {:.0}) - coverage: {}/{} tiles",
+                    tiles_added, player_x, player_y, existing_tiles + tiles_added, expected_tiles
+                ));
+            }
+        }
+
+        // Additional directional spawning for movement responsiveness
+        Self::spawn_directional_ground(ground_tiles, player_x, player_y, debug_messages);
+    }
+
+    /// Spawn ground tiles in the direction of player movement for better responsiveness
+    fn spawn_directional_ground(
+        ground_tiles: &mut Vec<GroundTile>,
+        player_x: f32,
+        player_y: f32,
+        debug_messages: &mut Vec<String>,
+    ) {
+        let tile_size = 64.0;
+        let directional_distance = 256.0; // Spawn ahead in all directions
+
+        // Spawn in 8 directions around player (N, NE, E, SE, S, SW, W, NW)
+        let directions = [
+            (0.0, -1.0),  // North (up)
+            (1.0, -1.0),  // Northeast
+            (1.0, 0.0),   // East (right)
+            (1.0, 1.0),   // Southeast
+            (0.0, 1.0),   // South (down)
+            (-1.0, 1.0),  // Southwest
+            (-1.0, 0.0),  // West (left)
+            (-1.0, -1.0), // Northwest
+        ];
+
+        let mut directional_tiles_added = 0;
+
+        for (dx, dy) in directions.iter() {
+            // Calculate spawn positions in this direction
+            for distance in (1..=4).map(|i| i as f32 * tile_size) {
+                let spawn_x = player_x + (dx * distance);
+                let spawn_y = player_y + (dy * distance);
+
+                // Snap to grid
+                let grid_x = (spawn_x / tile_size).round() * tile_size;
+                let grid_y = (spawn_y / tile_size).round() * tile_size;
+
+                // Check if tile already exists
+                let tile_exists = ground_tiles.iter().any(|tile| {
+                    (tile.x - grid_x).abs() < tile_size * 0.3
+                        && (tile.y - grid_y).abs() < tile_size * 0.3
+                });
+
+                if !tile_exists {
+                    let tile_type = Self::determine_tile_type();
+                    ground_tiles.push(GroundTile::new(grid_x, grid_y, tile_type));
+                    directional_tiles_added += 1;
+                }
+            }
+        }
+
+        if directional_tiles_added > 0 {
+            debug_messages.push(format!(
+                "DIRECTIONAL: {} ground tiles spawned around player at ({:.0}, {:.0})",
+                directional_tiles_added, player_x, player_y
+            ));
+        }
     }
 
     /// Spawn a clan member at a specific location
@@ -565,19 +701,43 @@ impl WorldSystem {
 
     /// Get spawn bounds for different entity types
     pub fn get_spawn_bounds(entity_type: &EntityType) -> (f32, f32, f32, f32) {
-        // Return (min_x, max_x, min_y, max_y) based on entity type
         match entity_type {
-            EntityType::Player => (350.0, 450.0, GROUND_LEVEL, 740.0),
-            EntityType::ClanLeader(_) => (200.0, GAME_WORLD_WIDTH - 400.0, GROUND_LEVEL, 750.0),
-            EntityType::ClanMember(_) => (100.0, GAME_WORLD_WIDTH - 200.0, GROUND_LEVEL, 800.0),
-            EntityType::HostileInfected => (50.0, GAME_WORLD_WIDTH - 250.0, GROUND_LEVEL, 850.0),
-            EntityType::Animal => (
-                50.0,
-                GAME_WORLD_WIDTH - 400.0,
-                650.0,
-                GAME_WORLD_HEIGHT - 50.0,
+            EntityType::Player => (
+                -1000.0,
+                GAME_WORLD_WIDTH + 1000.0,
+                0.0,
+                GAME_WORLD_HEIGHT * 2.0,
             ),
-            EntityType::Shelter => (0.0, GAME_WORLD_WIDTH, 0.0, 800.0),
+            EntityType::ClanLeader(_) => (
+                -1000.0,
+                GAME_WORLD_WIDTH + 1000.0,
+                0.0,
+                GAME_WORLD_HEIGHT * 2.0,
+            ),
+            EntityType::ClanMember(_) => (
+                -1000.0,
+                GAME_WORLD_WIDTH + 1000.0,
+                0.0,
+                GAME_WORLD_HEIGHT * 2.0,
+            ),
+            EntityType::HostileInfected => (
+                -1000.0,
+                GAME_WORLD_WIDTH + 1000.0,
+                0.0,
+                GAME_WORLD_HEIGHT * 2.0,
+            ),
+            EntityType::Animal => (
+                -1000.0,
+                GAME_WORLD_WIDTH + 1000.0,
+                0.0,
+                GAME_WORLD_HEIGHT * 2.0,
+            ),
+            EntityType::Shelter => (
+                -1000.0,
+                GAME_WORLD_WIDTH + 1000.0,
+                0.0,
+                GAME_WORLD_HEIGHT * 2.0,
+            ),
         }
     }
 
