@@ -45,10 +45,14 @@ pub struct Moon {
 
 impl Moon {
     pub fn new() -> Self {
+        // Use world constants to ensure moon is properly positioned
+        const GAME_WORLD_WIDTH: f32 = 2560.0;
+        const GROUND_LEVEL: f32 = 640.0;
+
         Self {
-            x: 1400.0, // Fixed position in world
-            y: 100.0,
-            phase: 0.8, // Nearly full moon
+            x: GAME_WORLD_WIDTH * 0.6, // Position moon at 60% across the world width
+            y: GROUND_LEVEL * 0.2, // Position moon at 20% of ground level height (well above ground)
+            phase: 0.8,            // Nearly full moon
             glow_intensity: 0.9,
         }
     }
