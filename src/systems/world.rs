@@ -14,8 +14,9 @@ pub const GROUND_LEVEL: f32 = 640.0;
 
 /// Horizon behavior constants (preserves current visuals)
 pub const HORIZON_LINE: f32 = 640.0; // Same as ground level - no visual change
-pub const HORIZON_MOVEMENT_THRESHOLD: f32 = 5.0; // Minimum movement toward horizon to trigger effect
+pub const HORIZON_MOVEMENT_THRESHOLD: f32 = 1.0; // Minimum movement toward horizon to trigger effect
 pub const GROUND_SHIFT_DISTANCE: f32 = 200.0; // How far to shift ground tiles during horizon movement
+pub const HORIZON_UPDATE_RATE: f32 = 0.033; // Update every ~30fps for responsiveness
 
 /// World system responsible for entity spawning and world management
 pub struct WorldSystem;
@@ -389,7 +390,7 @@ impl WorldSystem {
         let cleanup_y_range = screen_height * 2.0; // Keep tiles 2 screen heights around player
 
         // Only shift tiles if movement is significant enough
-        if movement_distance.abs() > 1.0 {
+        if movement_distance.abs() > 0.5 {
             // Shift existing ground tiles away from player
             for tile in ground_tiles.iter_mut() {
                 tile.y += movement_distance;
@@ -406,13 +407,13 @@ impl WorldSystem {
         for i in 0..tiles_to_generate_x {
             let x = start_x + (i as f32 * tile_size);
 
-            // Add tiles at the horizon line and slightly below
-            for row in 0..2 {
+            // Add tiles at the horizon line and slightly below (more rows for better coverage)
+            for row in 0..4 {
                 let y = HORIZON_LINE + (row as f32 * tile_size);
 
                 // Check if we already have a tile at this position with better tolerance
                 let tile_exists = ground_tiles.iter().any(|tile| {
-                    (tile.x - x).abs() < tile_size * 0.8 && (tile.y - y).abs() < tile_size * 0.8
+                    (tile.x - x).abs() < tile_size * 0.6 && (tile.y - y).abs() < tile_size * 0.6
                 });
 
                 if !tile_exists {
@@ -435,14 +436,24 @@ impl WorldSystem {
         let after_cleanup = ground_tiles.len();
         let tiles_removed = before_cleanup - after_cleanup;
 
-        // Add debug information
+        // Add debug information for significant changes
         if tiles_added > 0 || tiles_removed > 0 {
             debug_messages.push(format!(
-                "Ground tiles: {} → {} (added: {}, removed: {})",
+                "Ground tiles: {} → {} (added: {}, removed: {}) at player({:.0}, {:.0})",
                 initial_tile_count,
                 ground_tiles.len(),
                 tiles_added,
-                tiles_removed
+                tiles_removed,
+                player_x,
+                player_y
+            ));
+        }
+
+        // Debug tile generation activity
+        if movement_distance.abs() > 0.5 {
+            debug_messages.push(format!(
+                "Ground shift: {:.1} units, horizon detection active",
+                movement_distance
             ));
         }
     }
