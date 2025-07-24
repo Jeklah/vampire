@@ -347,12 +347,12 @@ impl WorldSystem {
 
         // Calculate tiles for expanded area
         let tiles_across = (extended_width / tile_size).ceil() as i32;
-        // Cover area from above horizon to expanded bottom
-        let tiles_down = ((GAME_WORLD_HEIGHT * 2.0) / tile_size).ceil() as i32;
+        // Cover area from horizon to expanded bottom only
+        let tiles_down = ((GAME_WORLD_HEIGHT * 2.0 - GROUND_LEVEL) / tile_size).ceil() as i32;
 
         for x in (0..tiles_across).map(|i| extended_start_x + (i as f32 * tile_size)) {
-            // Start from Y=0 (above horizon) to expanded bottom
-            for y in (0..tiles_down).map(|i| i as f32 * tile_size) {
+            // Start from horizon line (GROUND_LEVEL) downwards only
+            for y in (0..tiles_down).map(|i| GROUND_LEVEL + (i as f32 * tile_size)) {
                 let tile_type = Self::determine_tile_type();
                 ground_tiles.push(GroundTile::new(x, y, tile_type));
             }
@@ -423,14 +423,14 @@ impl WorldSystem {
             }
         }
 
-        // Minimal cleanup - only remove tiles that are extremely far from player
+        // Cleanup tiles that are extremely far from player OR above horizon line
         // This preserves ground tiles behind the player for persistent world feeling
         let before_cleanup = ground_tiles.len();
         let very_far_distance = 5000.0; // Much larger distance before cleanup
         ground_tiles.retain(|tile| {
             let distance_from_player =
                 ((tile.x - player_x).powi(2) + (tile.y - player_y).powi(2)).sqrt();
-            distance_from_player < very_far_distance
+            distance_from_player < very_far_distance && tile.y >= GROUND_LEVEL
         });
         let after_cleanup = ground_tiles.len();
         let tiles_removed = before_cleanup - after_cleanup;
@@ -457,17 +457,17 @@ impl WorldSystem {
         }
     }
 
-    /// Check if a position has ground (expanded to allow infinite world)
-    pub fn has_ground_at_position(_x: f32, _y: f32) -> bool {
-        // Allow ground anywhere - no boundary restrictions for expanded world
-        true // Always allow ground placement anywhere
+    /// Check if a position has ground (respects horizon line boundary)
+    pub fn has_ground_at_position(_x: f32, y: f32) -> bool {
+        // Only allow ground at or below horizon line
+        y >= GROUND_LEVEL
     }
 
-    /// Generate a random position within an expanded ground area
+    /// Generate a random position within an expanded ground area (below horizon)
     pub fn generate_random_ground_position() -> (f32, f32) {
-        // Generate random position in expanded area
+        // Generate random position in expanded area, but only below horizon
         let x = rand::gen_range(-1000.0, GAME_WORLD_WIDTH + 1000.0); // Extend beyond world bounds
-        let y = rand::gen_range(0.0, GAME_WORLD_HEIGHT * 2.0); // Allow above horizon and expand down
+        let y = rand::gen_range(GROUND_LEVEL, GAME_WORLD_HEIGHT * 2.0); // Only below horizon line
 
         (x, y)
     }
@@ -489,10 +489,10 @@ impl WorldSystem {
         let check_radius_x = 640.0; // Larger check area for better coverage in all directions
         let check_radius_y = 480.0; // Larger check area for better coverage in all directions
 
-        // Define the area around the player to check for ground - no world boundary restrictions
+        // Define the area around the player to check for ground - restrict to horizon and below
         let min_check_x = player_x - check_radius_x; // Can go negative (left of world)
         let max_check_x = player_x + check_radius_x; // Can go beyond world width
-        let min_check_y = player_y - check_radius_y; // Can go above horizon line
+        let min_check_y = (player_y - check_radius_y).max(GROUND_LEVEL); // Never above horizon line
         let max_check_y = player_y + check_radius_y; // Can go beyond world height
 
         // Count existing ground tiles in the area
@@ -530,6 +530,11 @@ impl WorldSystem {
 
                         let x = min_check_x + (i as f32 * tile_size);
                         let y = min_check_y + (j as f32 * tile_size);
+
+                        // Ensure ground only spawns at or below horizon line
+                        if y < GROUND_LEVEL {
+                            continue;
+                        }
 
                         // Check if a tile already exists at this position
                         let tile_exists = ground_tiles.iter().any(|tile| {
@@ -595,6 +600,11 @@ impl WorldSystem {
                 // Snap to grid
                 let grid_x = (spawn_x / tile_size).round() * tile_size;
                 let grid_y = (spawn_y / tile_size).round() * tile_size;
+
+                // Only spawn ground at or below horizon line
+                if grid_y < GROUND_LEVEL {
+                    continue;
+                }
 
                 // Check if tile already exists
                 let tile_exists = ground_tiles.iter().any(|tile| {
@@ -705,37 +715,37 @@ impl WorldSystem {
             EntityType::Player => (
                 -1000.0,
                 GAME_WORLD_WIDTH + 1000.0,
-                0.0,
+                GROUND_LEVEL,
                 GAME_WORLD_HEIGHT * 2.0,
             ),
             EntityType::ClanLeader(_) => (
                 -1000.0,
                 GAME_WORLD_WIDTH + 1000.0,
-                0.0,
+                GROUND_LEVEL,
                 GAME_WORLD_HEIGHT * 2.0,
             ),
             EntityType::ClanMember(_) => (
                 -1000.0,
                 GAME_WORLD_WIDTH + 1000.0,
-                0.0,
+                GROUND_LEVEL,
                 GAME_WORLD_HEIGHT * 2.0,
             ),
             EntityType::HostileInfected => (
                 -1000.0,
                 GAME_WORLD_WIDTH + 1000.0,
-                0.0,
+                GROUND_LEVEL,
                 GAME_WORLD_HEIGHT * 2.0,
             ),
             EntityType::Animal => (
                 -1000.0,
                 GAME_WORLD_WIDTH + 1000.0,
-                0.0,
+                GROUND_LEVEL,
                 GAME_WORLD_HEIGHT * 2.0,
             ),
             EntityType::Shelter => (
                 -1000.0,
                 GAME_WORLD_WIDTH + 1000.0,
-                0.0,
+                GROUND_LEVEL,
                 GAME_WORLD_HEIGHT * 2.0,
             ),
         }
