@@ -209,15 +209,13 @@ impl AISystem {
                 // Note: facing_direction field removed from GameEntity
                 // Facing direction now calculated from velocity when needed
 
-                // Keep entities within world bounds
-                entity.position.x = entity
-                    .position
-                    .x
-                    .clamp(0.0, crate::systems::world::GAME_WORLD_WIDTH);
+                // Allow entities to move in expanded world - no boundary restrictions
+                // NPCs can now move beyond original world bounds and above horizon line
                 entity.position.y = entity.position.y.clamp(
-                    crate::systems::world::GROUND_LEVEL,
-                    crate::systems::world::GAME_WORLD_HEIGHT,
+                    0.0,                                            // Allow movement above horizon
+                    crate::systems::world::GAME_WORLD_HEIGHT * 2.0, // Expand downward limit
                 );
+                // No X constraints - entities can move infinitely left and right
 
                 // Update AI state based on behavior
                 match entity.entity_type {
