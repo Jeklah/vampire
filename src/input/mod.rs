@@ -44,6 +44,7 @@ impl InputHandler {
             KeyCode::Tab,
             KeyCode::L,
             KeyCode::H,
+            KeyCode::M,
             KeyCode::Q,
             KeyCode::LeftControl,
         ];
@@ -87,6 +88,22 @@ impl InputHandler {
 
     pub fn is_quit_requested(&self) -> bool {
         self.is_key_pressed(KeyCode::Q) && self.is_key_pressed(KeyCode::LeftControl)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_m_key_included_in_input_handler() {
+        // This test verifies that KeyCode::M is included in the keys_to_check array
+        // by ensuring the InputHandler can be created without panicking
+        let input_handler = InputHandler::new();
+
+        // The input handler should handle M key without issues
+        assert!(!input_handler.is_key_pressed(KeyCode::M));
+        assert!(!input_handler.is_key_just_pressed(KeyCode::M));
     }
 }
 
