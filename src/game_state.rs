@@ -37,6 +37,11 @@ pub struct GameState {
     pub blood_particles: Vec<BloodParticle>,
     pub ground_tiles: Vec<GroundTile>,
 
+    // Horizon movement tracking (preserves current visuals)
+    pub last_player_y: f32,
+    pub is_moving_toward_horizon: bool,
+    pub ground_update_timer: f32,
+
     // Debug message log
     pub debug_messages: Vec<String>,
 
@@ -76,6 +81,9 @@ impl GameState {
             moon: Moon::new(),
             blood_particles: Vec::new(),
             ground_tiles: Vec::new(),
+            last_player_y: crate::systems::world::GROUND_LEVEL,
+            is_moving_toward_horizon: false,
+            ground_update_timer: 0.0,
             debug_messages: Vec::new(),
         };
 
@@ -116,6 +124,8 @@ impl GameState {
         self.update_shelter_system(delta_time);
         self.update_blood_system(delta_time);
         self.update_objectives_system();
+        self.update_horizon_movement_detection();
+        self.update_horizon_ground_effect();
         self.update_camera();
         self.update_phase_progression();
     }
@@ -501,6 +511,68 @@ impl GameState {
     /// Reset game to initial state
     pub fn reset(&mut self) {
         *self = Self::new();
+    }
+
+    /// Detect horizon movement without changing visuals
+    fn update_horizon_movement_detection(&mut self) {
+        use crate::systems::world::{HORIZON_LINE, HORIZON_MOVEMENT_THRESHOLD};
+
+        if let Some(player) = self
+            .entities
+            .iter()
+            .find(|e| matches!(e.entity_type, EntityType::Player))
+        {
+            let current_y = player.position.y;
+            let y_movement = self.last_player_y - current_y;
+
+            // Check if player is moving toward horizon (decreasing Y toward HORIZON_LINE)
+            let was_moving_toward_horizon = self.is_moving_toward_horizon;
+            self.is_moving_toward_horizon =
+                current_y > HORIZON_LINE && y_movement > HORIZON_MOVEMENT_THRESHOLD;
+
+            // Log when horizon movement starts/stops for debugging
+            if self.is_moving_toward_horizon && !was_moving_toward_horizon {
+                self.add_debug_message("Started moving toward horizon".to_string());
+            } else if !self.is_moving_toward_horizon && was_moving_toward_horizon {
+                self.add_debug_message("Stopped moving toward horizon".to_string());
+            }
+
+            self.last_player_y = current_y;
+        }
+    }
+
+    /// Apply horizon ground scrolling effect during horizon movement
+    fn update_horizon_ground_effect(&mut self) {
+        use crate::systems::world::{WorldSystem, GROUND_SHIFT_DISTANCE};
+
+        if self.is_moving_toward_horizon {
+            // Rate limit ground updates to prevent excessive tile operations
+            self.ground_update_timer += 1.0 / 60.0; // Assume 60 FPS
+
+            if self.ground_update_timer >= 0.1 {
+                // Update every 0.1 seconds
+                if let Some(player) = self
+                    .entities
+                    .iter()
+                    .find(|e| matches!(e.entity_type, EntityType::Player))
+                {
+                    let movement_distance = GROUND_SHIFT_DISTANCE * 0.02; // Even smaller incremental shift
+
+                    WorldSystem::shift_ground_for_horizon_movement(
+                        &mut self.ground_tiles,
+                        player.position.x,
+                        player.position.y,
+                        movement_distance,
+                        &mut self.debug_messages,
+                    );
+                }
+
+                self.ground_update_timer = 0.0;
+            }
+        } else {
+            // Reset timer when not moving toward horizon
+            self.ground_update_timer = 0.0;
+        }
     }
 }
 
