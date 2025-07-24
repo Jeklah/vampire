@@ -910,30 +910,67 @@ impl Renderer {
     ) {
         use crate::systems::world::HORIZON_LINE;
 
-        // Only draw when player is moving toward horizon
+        let horizon_screen_y = HORIZON_LINE * self.zoom_level + camera_offset_y;
+
+        // Always draw a subtle horizon line for reference
+        if horizon_screen_y >= -20.0 && horizon_screen_y <= screen_height() + 20.0 {
+            let line_color = if game_state.is_moving_toward_horizon {
+                Color::new(1.0, 0.8, 0.2, 0.6) // Bright yellow when active
+            } else {
+                Color::new(0.4, 0.4, 0.6, 0.2) // Dim blue when inactive
+            };
+
+            draw_line(
+                0.0,
+                horizon_screen_y,
+                screen_width(),
+                horizon_screen_y,
+                2.0,
+                line_color,
+            );
+        }
+
+        // Show movement status and ground tile count
         if game_state.is_moving_toward_horizon {
-            let horizon_screen_y = HORIZON_LINE * self.zoom_level + camera_offset_y;
+            self.draw_text_with_font(
+                &format!(
+                    "HORIZON ACTIVE - Tiles: {} - Movement: {:.1}",
+                    game_state.ground_tiles.len(),
+                    game_state.accumulated_horizon_movement
+                ),
+                10.0,
+                30.0,
+                18.0,
+                Color::new(1.0, 1.0, 0.0, 1.0),
+            );
+        } else {
+            // Show inactive status
+            self.draw_text_with_font(
+                &format!(
+                    "Horizon: INACTIVE - Tiles: {}",
+                    game_state.ground_tiles.len()
+                ),
+                10.0,
+                30.0,
+                16.0,
+                Color::new(0.6, 0.6, 0.8, 0.7),
+            );
+        }
 
-            // Draw a very subtle indicator line at the horizon
-            if horizon_screen_y >= 0.0 && horizon_screen_y <= screen_height() {
-                draw_line(
-                    0.0,
-                    horizon_screen_y,
-                    screen_width(),
-                    horizon_screen_y,
-                    1.0,
-                    Color::new(0.6, 0.6, 0.8, 0.3), // Very subtle blue line
-                );
-
-                // Add text indicator in corner
-                self.draw_text_with_font(
-                    "Moving toward horizon",
-                    10.0,
-                    30.0,
-                    20.0,
-                    Color::new(0.8, 0.8, 1.0, 0.8),
-                );
-            }
+        // Show player position relative to horizon
+        if let Some(player) = game_state
+            .entities
+            .iter()
+            .find(|e| matches!(e.entity_type, EntityType::Player))
+        {
+            let distance_to_horizon = player.position.y - HORIZON_LINE;
+            self.draw_text_with_font(
+                &format!("Distance to horizon: {:.0}", distance_to_horizon),
+                10.0,
+                50.0,
+                14.0,
+                Color::new(0.8, 0.8, 1.0, 0.8),
+            );
         }
     }
 
