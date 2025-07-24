@@ -216,6 +216,53 @@ pub fn shift_ground_for_horizon_movement(
 pub ground_update_timer: f32, // Rate limiting timer
 ```
 
+### Version 1.2 - Horizon Movement Detection Fixes
+
+**Issue**: Ground spawning stopped working after aggressive rate limiting
+**Root Cause**: Movement threshold too high, rate limiting too slow, movement distance too small
+**Solution**: Improved movement detection and balanced responsiveness
+
+#### Key Improvements
+
+1. **Accumulated Movement Tracking**
+   - Added `accumulated_horizon_movement` to track continuous movement toward horizon
+   - Reduced movement threshold from `5.0` to `1.0` units for better sensitivity
+   - Movement accumulates until threshold is reached, then resets when not moving toward horizon
+
+2. **Balanced Rate Limiting**
+   - Reduced update rate from `0.1s` to `0.033s` (~30fps) for better responsiveness
+   - Increased movement distance from `GROUND_SHIFT_DISTANCE * 0.02` to `* 0.08`
+   - Added `HORIZON_UPDATE_RATE` constant for configurable timing
+
+3. **Enhanced Visual Debugging**
+   - Always visible horizon line (bright yellow when active, dim blue when inactive)
+   - Real-time display of tile count and accumulated movement
+   - Player distance to horizon indicator
+   - More detailed debug messages with position information
+
+4. **Improved Ground Generation**
+   - Increased tile generation rows from 2 to 4 for better coverage
+   - Tightened duplicate detection tolerance to `tile_size * 0.6`
+   - Better spatial debugging with player position in debug messages
+
+#### Technical Changes
+
+```rust
+// New constants for better responsiveness
+pub const HORIZON_MOVEMENT_THRESHOLD: f32 = 1.0; // Reduced from 5.0
+pub const HORIZON_UPDATE_RATE: f32 = 0.033; // ~30fps updates
+
+// New GameState field for accumulated tracking
+pub accumulated_horizon_movement: f32,
+
+// Improved movement detection
+if current_y > HORIZON_LINE && y_movement > 0.0 {
+    self.accumulated_horizon_movement += y_movement;
+} else {
+    self.accumulated_horizon_movement = 0.0;
+}
+```
+
 ## Troubleshooting
 
 ### Common Issues
@@ -237,14 +284,40 @@ pub ground_update_timer: f32, // Rate limiting timer
 - Verify camera system integration
 - Review tile duplicate detection logic
 
+**Horizon system not activating**:
+- Check if `accumulated_horizon_movement` is increasing in debug display
+- Verify player is above horizon line (y > 640.0)
+- Ensure movement threshold (`1.0`) is appropriate for movement speed
+- Look for "Started moving toward horizon" debug messages
+
 **Performance degradation**:
 - Monitor tile count during horizon movement via debug messages
-- Adjust `GROUND_SHIFT_DISTANCE` if needed
-- Review rate limiting timer (currently 0.1 seconds)
+- Adjust `GROUND_SHIFT_DISTANCE` if needed  
+- Review rate limiting timer (currently 0.033 seconds)
 - Check cleanup frequency and bounds
+- Watch for excessive tile generation in debug output
+
+## Testing the Improved System
+
+### Visual Indicators
+- **Horizon Line**: Always visible thin line across screen (yellow when active, blue when inactive)
+- **Status Display**: Shows "HORIZON ACTIVE" with tile count and movement accumulation
+- **Distance Indicator**: Shows player's distance from horizon line
+
+### Expected Behavior
+1. **Normal Movement**: Horizon line visible but inactive, status shows "INACTIVE"
+2. **Moving Toward Horizon**: Walk upward (W key) toward the horizon line
+3. **Activation**: Status changes to "HORIZON ACTIVE" when accumulated movement > 1.0
+4. **Ground Effect**: New tiles spawn, existing tiles shift, creating forward movement illusion
+5. **Debug Messages**: Console shows tile operations and ground shifting activity
 
 ## Conclusion
 
-The horizon-based perspective system successfully addresses the "square in space" appearance issue while maintaining full compatibility with the existing game architecture. The implementation demonstrates careful consideration of visual preservation, performance impact, and user experience.
+The horizon-based perspective system successfully addresses the "square in space" appearance issue while maintaining full compatibility with the existing game architecture. Through iterative bug fixes, the system now provides:
 
-The system provides a foundation for future perspective enhancements while ensuring the core game remains stable and visually consistent.
+- **Responsive horizon detection** with accumulated movement tracking
+- **Balanced performance** with appropriate rate limiting
+- **Robust ground management** that prevents tile disappearance
+- **Visual debugging tools** for easy testing and troubleshooting
+
+The system demonstrates careful consideration of visual preservation, performance impact, and user experience, providing a solid foundation for future perspective enhancements while ensuring the core game remains stable and visually consistent.
