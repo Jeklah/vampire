@@ -41,6 +41,7 @@ pub struct GameState {
     pub last_player_y: f32,
     pub is_moving_toward_horizon: bool,
     pub ground_update_timer: f32,
+    pub accumulated_horizon_movement: f32,
 
     // Debug message log
     pub debug_messages: Vec<String>,
@@ -84,6 +85,7 @@ impl GameState {
             last_player_y: crate::systems::world::GROUND_LEVEL,
             is_moving_toward_horizon: false,
             ground_update_timer: 0.0,
+            accumulated_horizon_movement: 0.0,
             debug_messages: Vec::new(),
         };
 
@@ -513,7 +515,7 @@ impl GameState {
         *self = Self::new();
     }
 
-    /// Detect horizon movement without changing visuals
+    /// Detect horizon movement with accumulated tracking
     fn update_horizon_movement_detection(&mut self) {
         use crate::systems::world::{HORIZON_LINE, HORIZON_MOVEMENT_THRESHOLD};
 
@@ -525,14 +527,25 @@ impl GameState {
             let current_y = player.position.y;
             let y_movement = self.last_player_y - current_y;
 
-            // Check if player is moving toward horizon (decreasing Y toward HORIZON_LINE)
+            // Accumulate movement toward horizon
+            if current_y > HORIZON_LINE && y_movement > 0.0 {
+                self.accumulated_horizon_movement += y_movement;
+            } else {
+                // Reset accumulation if not moving toward horizon
+                self.accumulated_horizon_movement = 0.0;
+            }
+
+            // Check if accumulated movement exceeds threshold
             let was_moving_toward_horizon = self.is_moving_toward_horizon;
             self.is_moving_toward_horizon =
-                current_y > HORIZON_LINE && y_movement > HORIZON_MOVEMENT_THRESHOLD;
+                self.accumulated_horizon_movement > HORIZON_MOVEMENT_THRESHOLD;
 
             // Log when horizon movement starts/stops for debugging
             if self.is_moving_toward_horizon && !was_moving_toward_horizon {
-                self.add_debug_message("Started moving toward horizon".to_string());
+                self.add_debug_message(format!(
+                    "Started moving toward horizon (accumulated: {:.1})",
+                    self.accumulated_horizon_movement
+                ));
             } else if !self.is_moving_toward_horizon && was_moving_toward_horizon {
                 self.add_debug_message("Stopped moving toward horizon".to_string());
             }
@@ -546,17 +559,17 @@ impl GameState {
         use crate::systems::world::{WorldSystem, GROUND_SHIFT_DISTANCE};
 
         if self.is_moving_toward_horizon {
-            // Rate limit ground updates to prevent excessive tile operations
+            // Rate limit ground updates for better responsiveness
             self.ground_update_timer += 1.0 / 60.0; // Assume 60 FPS
 
-            if self.ground_update_timer >= 0.1 {
-                // Update every 0.1 seconds
+            if self.ground_update_timer >= crate::systems::world::HORIZON_UPDATE_RATE {
+                // Update every ~30fps for responsive feel
                 if let Some(player) = self
                     .entities
                     .iter()
                     .find(|e| matches!(e.entity_type, EntityType::Player))
                 {
-                    let movement_distance = GROUND_SHIFT_DISTANCE * 0.02; // Even smaller incremental shift
+                    let movement_distance = GROUND_SHIFT_DISTANCE * 0.08; // More noticeable shift
 
                     WorldSystem::shift_ground_for_horizon_movement(
                         &mut self.ground_tiles,
