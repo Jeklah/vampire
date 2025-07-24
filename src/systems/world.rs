@@ -12,6 +12,11 @@ pub const GAME_WORLD_WIDTH: f32 = 2560.0;
 pub const GAME_WORLD_HEIGHT: f32 = 1440.0;
 pub const GROUND_LEVEL: f32 = 640.0;
 
+/// Horizon behavior constants (preserves current visuals)
+pub const HORIZON_LINE: f32 = 640.0; // Same as ground level - no visual change
+pub const HORIZON_MOVEMENT_THRESHOLD: f32 = 5.0; // Minimum movement toward horizon to trigger effect
+pub const GROUND_SHIFT_DISTANCE: f32 = 200.0; // How far to shift ground tiles during horizon movement
+
 /// World system responsible for entity spawning and world management
 pub struct WorldSystem;
 
@@ -361,6 +366,84 @@ impl WorldSystem {
             61..=80 => TileType::DeadGrass,
             81..=95 => TileType::Dirt,
             _ => TileType::Stone,
+        }
+    }
+
+    /// Shift ground tiles during horizon movement (preserves current visuals)
+    pub fn shift_ground_for_horizon_movement(
+        ground_tiles: &mut Vec<GroundTile>,
+        player_x: f32,
+        player_y: f32,
+        movement_distance: f32,
+        debug_messages: &mut Vec<String>,
+    ) {
+        let initial_tile_count = ground_tiles.len();
+
+        // Calculate screen-based bounds for better tile management
+        let screen_width = 1280.0; // Approximate screen width
+        let screen_height = 720.0; // Approximate screen height
+        let tile_size = 64.0;
+
+        // More conservative cleanup bounds based on visible area
+        let cleanup_x_range = screen_width * 1.5; // Keep tiles 1.5 screen widths around player
+        let cleanup_y_range = screen_height * 2.0; // Keep tiles 2 screen heights around player
+
+        // Only shift tiles if movement is significant enough
+        if movement_distance.abs() > 1.0 {
+            // Shift existing ground tiles away from player
+            for tile in ground_tiles.iter_mut() {
+                tile.y += movement_distance;
+            }
+        }
+
+        // Generate new ground tiles more conservatively
+        let tiles_to_generate_x = (cleanup_x_range as f32 / tile_size).ceil() as i32;
+        let start_x = ((player_x - cleanup_x_range as f32 / 2.0) / tile_size).floor() * tile_size;
+
+        let mut tiles_added = 0;
+
+        // Add new tiles at the horizon area where player is moving
+        for i in 0..tiles_to_generate_x {
+            let x = start_x + (i as f32 * tile_size);
+
+            // Add tiles at the horizon line and slightly below
+            for row in 0..2 {
+                let y = HORIZON_LINE + (row as f32 * tile_size);
+
+                // Check if we already have a tile at this position with better tolerance
+                let tile_exists = ground_tiles.iter().any(|tile| {
+                    (tile.x - x).abs() < tile_size * 0.8 && (tile.y - y).abs() < tile_size * 0.8
+                });
+
+                if !tile_exists {
+                    let tile_type = Self::determine_tile_type();
+                    ground_tiles.push(GroundTile::new(x, y, tile_type));
+                    tiles_added += 1;
+                }
+            }
+        }
+
+        // Clean up tiles using screen-relative bounds instead of fixed distance
+        let before_cleanup = ground_tiles.len();
+        ground_tiles.retain(|tile| {
+            let x_in_range = (tile.x - player_x).abs() < cleanup_x_range;
+            let y_in_range = (tile.y - player_y).abs() < cleanup_y_range;
+            let not_too_far_down = tile.y < GAME_WORLD_HEIGHT + 200.0;
+
+            x_in_range && y_in_range && not_too_far_down
+        });
+        let after_cleanup = ground_tiles.len();
+        let tiles_removed = before_cleanup - after_cleanup;
+
+        // Add debug information
+        if tiles_added > 0 || tiles_removed > 0 {
+            debug_messages.push(format!(
+                "Ground tiles: {} → {} (added: {}, removed: {})",
+                initial_tile_count,
+                ground_tiles.len(),
+                tiles_added,
+                tiles_removed
+            ));
         }
     }
 
