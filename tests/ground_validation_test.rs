@@ -70,7 +70,7 @@ fn test_generate_random_ground_position() {
         let (x, y) = systems::world::WorldSystem::generate_random_ground_position();
         assert!(x >= -1000.0); // Should be within expanded bounds
         assert!(x <= 3560.0); // Should be within expanded bounds (2560 + 1000)
-        assert!(y >= 0.0); // Can start from Y=0 (above horizon)
+        assert!(y >= 640.0); // Can only start from horizon line (GROUND_LEVEL)
         assert!(y <= 2880.0); // Should be within expanded world bounds (1440 * 2)
     }
 }
@@ -160,26 +160,29 @@ fn test_ensure_ground_near_player() {
     assert!(!ground_tiles.is_empty());
     assert!(!debug_messages.is_empty());
 
-    // Test with player above ground level - tiles can now spawn anywhere
+    // Test with player at horizon level - tiles should spawn at/below horizon
     let mut ground_tiles2 = Vec::new();
     let mut debug_messages2 = Vec::new();
-    let player_y_above = 300.0; // Well above horizon line
+    let player_y_horizon = 640.0; // At horizon line
 
     systems::world::WorldSystem::ensure_ground_near_player(
         &mut ground_tiles2,
         player_x,
-        player_y_above,
+        player_y_horizon,
         &mut debug_messages2,
     );
 
-    // Should spawn tiles in expanded world (above horizon allowed)
+    // Should spawn tiles at or below horizon line only
     assert!(!ground_tiles2.is_empty());
+    for tile in &ground_tiles2 {
+        assert!(tile.y >= 640.0); // All tiles at or below horizon line
+    }
 
-    // Test with player far outside original world bounds
+    // Test with player far outside original world bounds but below horizon
     let mut ground_tiles3 = Vec::new();
     let mut debug_messages3 = Vec::new();
     let player_x_outside = -500.0; // Left of original world bounds
-    let player_y_outside = 100.0; // Above horizon
+    let player_y_outside = 800.0; // Below horizon line
 
     systems::world::WorldSystem::ensure_ground_near_player(
         &mut ground_tiles3,
@@ -188,8 +191,11 @@ fn test_ensure_ground_near_player() {
         &mut debug_messages3,
     );
 
-    // Should spawn tiles even outside original bounds
+    // Should spawn tiles even outside original bounds, but only below horizon
     assert!(!ground_tiles3.is_empty());
+    for tile in &ground_tiles3 {
+        assert!(tile.y >= 640.0); // All tiles at or below horizon line
+    }
 
     // Test with existing ground coverage - should not spawn many new tiles
     let initial_count = ground_tiles.len();
