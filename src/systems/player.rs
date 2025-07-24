@@ -91,10 +91,10 @@ impl PlayerSystem {
             // Facing direction calculation removed as field no longer exists
             // Direction is now calculated from velocity when needed for rendering
 
-            // Allow movement beyond original world bounds
-            // Only clamp Y to prevent going below a reasonable minimum
+            // Allow movement beyond original world bounds horizontally
+            // Restrict Y movement to horizon line and below
             player.position.y = player.position.y.clamp(
-                0.0,                                            // Allow movement above horizon line
+                crate::systems::world::GROUND_LEVEL, // Can't go above horizon line
                 crate::systems::world::GAME_WORLD_HEIGHT * 2.0, // Expand downward limit
             );
             // No X constraints - can move infinitely left and right
