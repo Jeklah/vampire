@@ -13,13 +13,14 @@ This document describes the implementation of a persistent ground generation sys
 
 ### Issues Addressed
 1. **Tiles Disappearing Behind Player**: Ground tiles were being aggressively cleaned up when moving, especially when walking down then up
-2. **Limited Directional Generation**: Ground generation was primarily focused on horizon movement, not responsive to all directions
-3. **Inconsistent Coverage**: Gaps in ground coverage when exploring in non-horizon directions
+2. **Ground Above Horizon**: Ground was spawning above the horizon line, breaking the visual atmosphere
+3. **Limited Directional Generation**: Ground generation was primarily focused on horizon movement, not responsive to all directions
+4. **Inconsistent Coverage**: Gaps in ground coverage when exploring in non-horizon directions
 
 ## Solution Implementation
 
 ### 1. Persistent Ground System
-**Eliminated Aggressive Cleanup**: Replaced screen-relative cleanup with distance-based cleanup using much larger distances.
+**Eliminated Aggressive Cleanup**: Replaced screen-relative cleanup with distance-based cleanup using much larger distances, while enforcing horizon line boundary.
 
 ```rust
 // BEFORE: Aggressive cleanup
@@ -31,12 +32,12 @@ ground_tiles.retain(|tile| {
     x_in_range && y_in_range
 });
 
-// AFTER: Persistent ground
+// AFTER: Persistent ground with horizon constraint
 let very_far_distance = 5000.0; // Much larger distance
 ground_tiles.retain(|tile| {
     let distance_from_player = 
         ((tile.x - player_x).powi(2) + (tile.y - player_y).powi(2)).sqrt();
-    distance_from_player < very_far_distance
+    distance_from_player < very_far_distance && tile.y >= GROUND_LEVEL
 });
 ```
 
@@ -70,15 +71,20 @@ for pass in 0..2 {
 
 // 8-directional spawning
 let directions = [
-    (0.0, -1.0),  // North (up)
-    (1.0, -1.0),  // Northeast  
+    (0.0, -1.0),  // North (up) - limited by horizon
+    (1.0, -1.0),  // Northeast - limited by horizon
     (1.0, 0.0),   // East (right)
     (1.0, 1.0),   // Southeast
     (0.0, 1.0),   // South (down)
     (-1.0, 1.0),  // Southwest
     (-1.0, 0.0),  // West (left)
-    (-1.0, -1.0), // Northwest
+    (-1.0, -1.0), // Northwest - limited by horizon
 ];
+
+// Horizon constraint applied to all directions
+if grid_y < GROUND_LEVEL {
+    continue; // Skip tiles above horizon line
+}
 ```
 
 ## Technical Implementation
@@ -86,9 +92,9 @@ let directions = [
 ### Files Modified
 
 1. **`src/systems/world.rs`**
-   - `shift_ground_for_horizon_movement()`: Reduced cleanup aggressiveness
-   - `ensure_ground_near_player()`: Enhanced with better coverage and directional spawning
-   - `spawn_directional_ground()`: New function for 8-directional tile generation
+   - `shift_ground_for_horizon_movement()`: Reduced cleanup aggressiveness + horizon constraint
+   - `ensure_ground_near_player()`: Enhanced with better coverage and directional spawning, respects horizon
+   - `spawn_directional_ground()`: New function for 8-directional tile generation below horizon
 
 2. **`src/game_state.rs`**
    - Added movement tracking fields: `last_player_x`, `movement_threshold`
@@ -101,9 +107,10 @@ let directions = [
 ### Key Improvements
 
 #### Persistent Tiles
-- **5000px Cleanup Distance**: Tiles only removed when extremely far from player
+- **5000px Cleanup Distance**: Tiles only removed when extremely far from player or above horizon
+- **Horizon Boundary**: All tiles above horizon line (Y < 640.0) are automatically removed
 - **Memory Efficient**: Prevents infinite memory growth while maintaining persistence
-- **Smooth Exploration**: No visible tile disappearing during normal gameplay
+- **Smooth Exploration**: No visible tile disappearing during normal gameplay below horizon
 
 #### Responsive Generation
 - **Movement Threshold**: 32-pixel movement triggers new generation
@@ -141,15 +148,17 @@ let distance_from_player =
 
 ### Before Implementation
 - Ground disappeared when backtracking
+- Ground spawned above horizon line, breaking visual atmosphere
 - Gaps in coverage when moving vertically
 - Inconsistent terrain in explored areas
 - Players had to avoid certain movement patterns
 
 ### After Implementation
-- **Persistent World**: Once explored, ground stays visible
-- **Seamless Exploration**: Responsive generation in all directions
-- **Consistent Coverage**: No gaps or missing terrain
-- **Natural Movement**: Players can move freely without terrain concerns
+- **Persistent World**: Once explored, ground stays visible (below horizon)
+- **Horizon Respect**: Ground only appears from horizon line downwards, maintaining atmosphere
+- **Seamless Exploration**: Responsive generation in all directions (below horizon)
+- **Consistent Coverage**: No gaps or missing terrain in valid areas
+- **Natural Movement**: Players can move freely without terrain concerns while respecting horizon
 
 ## Testing Results
 
@@ -160,8 +169,13 @@ assert!(!ground_tiles2.is_empty()); // Ground remains after moving away
 
 // Test omnidirectional generation
 let player_x_outside = -500.0; // Left of original bounds
-let player_y_outside = 100.0;  // Above horizon
-assert!(!ground_tiles3.is_empty()); // Ground spawns in all areas
+let player_y_outside = 800.0;  // Below horizon line
+assert!(!ground_tiles3.is_empty()); // Ground spawns in valid areas (below horizon)
+
+// Verify horizon constraint
+for tile in &ground_tiles3 {
+    assert!(tile.y >= 640.0); // All tiles at or below horizon line
+}
 ```
 
 ### Performance Validation
@@ -176,12 +190,15 @@ assert!(!ground_tiles3.is_empty()); // Ground spawns in all areas
 // Distance before tile cleanup (can be increased for more persistence)
 let very_far_distance = 5000.0;
 
+// Horizon line constraint (ground only below this Y value)
+pub const GROUND_LEVEL: f32 = 640.0;
+
 // Movement sensitivity (lower = more responsive)
 pub movement_threshold: f32 = 32.0;
 
 // Generation coverage areas
 let check_radius_x = 640.0; // Horizontal coverage
-let check_radius_y = 480.0; // Vertical coverage
+let check_radius_y = 480.0; // Vertical coverage (limited by horizon)
 
 // Generation limits
 let max_tiles_to_add = 64;  // Tiles per generation cycle
@@ -206,11 +223,12 @@ let coverage_threshold = 3/4; // When to trigger generation
 The persistent ground generation system successfully addresses the core issues of disappearing tiles and limited directional responsiveness. The implementation provides:
 
 **Key Benefits:**
-✅ **Persistent Terrain**: Ground stays once explored  
-✅ **Omnidirectional Generation**: Responsive to all movement directions  
+✅ **Persistent Terrain**: Ground stays once explored (below horizon)  
+✅ **Horizon Atmosphere**: Maintains visual boundary at Y=640.0 for proper game feel  
+✅ **Omnidirectional Generation**: Responsive to all movement directions (within constraints)  
 ✅ **Enhanced Coverage**: Larger areas, more tiles, better algorithms  
 ✅ **Smooth Performance**: Efficient generation without frame drops  
 ✅ **Configurable**: Easy to adjust for different game requirements  
 ✅ **Future-Ready**: Foundation for advanced terrain systems  
 
-The system transforms the exploration experience from limited and frustrating to seamless and natural, providing the foundation for true open-world gameplay.
+The system transforms the exploration experience from limited and frustrating to seamless and natural, while maintaining the atmospheric horizon boundary that gives the game its visual identity.

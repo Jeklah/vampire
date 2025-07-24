@@ -13,20 +13,20 @@ This document describes the implementation of an expanded world system that remo
 
 ### 1. Unlimited Movement
 - **No Horizontal Boundaries**: Players can move infinitely left and right (no X-axis constraints)
-- **Above Horizon Movement**: Players can now move above the original horizon line (Y < 640.0)
+- **Horizon Line Respect**: Players and NPCs cannot move above the horizon line (Y >= 640.0)
 - **Expanded Vertical Range**: Increased downward movement limit to 2x original world height
-- **NPC Freedom**: All NPCs can also move in the expanded world space
+- **NPC Freedom**: All NPCs can also move in the expanded world space (below horizon)
 
 ### 2. Dynamic Ground Generation
 - **Automatic Spawning**: Ground tiles spawn automatically near the player wherever they go
-- **Above Horizon Ground**: Ground can now spawn above the original horizon line
-- **Outside World Bounds**: Ground generates even outside the original world boundaries
-- **Performance Optimized**: Limited to 16 tiles per update with efficient area checking
+- **Horizon Boundary Respect**: Ground only spawns at or below the horizon line (Y >= 640.0)
+- **Outside World Bounds**: Ground generates even outside the original world boundaries (horizontally)
+- **Performance Optimized**: Limited to 64 tiles per update with efficient area checking
 
 ### 3. Expanded Initial World
 - **Extended Ground Coverage**: Initial ground generation covers expanded area
 - **1000px Buffer**: Added 1000 pixels on each side of the original world
-- **Full Vertical Coverage**: Ground tiles from Y=0 to expanded bottom
+- **Horizon-Respecting Coverage**: Ground tiles from horizon line (Y=640) to expanded bottom
 
 ## Technical Implementation
 
@@ -36,9 +36,9 @@ This document describes the implementation of an expanded world system that remo
 player.position.x = player.position.x.clamp(0.0, GAME_WORLD_WIDTH);
 player.position.y = player.position.y.clamp(GROUND_LEVEL, GAME_WORLD_HEIGHT);
 
-// AFTER: Unlimited movement
+// AFTER: Unlimited horizontal movement, horizon-constrained vertical
 // No X constraints - infinite horizontal movement
-player.position.y = player.position.y.clamp(0.0, GAME_WORLD_HEIGHT * 2.0);
+player.position.y = player.position.y.clamp(GROUND_LEVEL, GAME_WORLD_HEIGHT * 2.0);
 ```
 
 ### Ground Generation Updates
@@ -47,9 +47,9 @@ player.position.y = player.position.y.clamp(0.0, GAME_WORLD_HEIGHT * 2.0);
 let min_check_x = (player_x - radius).max(0.0);
 let min_check_y = (player_y - radius).max(GROUND_LEVEL);
 
-// AFTER: No boundary restrictions
+// AFTER: Horizontal freedom, horizon boundary respected
 let min_check_x = player_x - radius; // Can go negative
-let min_check_y = player_y - radius; // Can go above horizon
+let min_check_y = (player_y - radius).max(GROUND_LEVEL); // Respects horizon line
 ```
 
 ### Spawn Bounds Expansion
@@ -57,8 +57,8 @@ let min_check_y = player_y - radius; // Can go above horizon
 // BEFORE: Limited to original world
 EntityType::Player => (350.0, 450.0, GROUND_LEVEL, 740.0),
 
-// AFTER: Expanded world bounds
-EntityType::Player => (-1000.0, GAME_WORLD_WIDTH + 1000.0, 0.0, GAME_WORLD_HEIGHT * 2.0),
+// AFTER: Expanded world bounds (respecting horizon)
+EntityType::Player => (-1000.0, GAME_WORLD_WIDTH + 1000.0, GROUND_LEVEL, GAME_WORLD_HEIGHT * 2.0),
 ```
 
 ## Files Modified
@@ -96,9 +96,9 @@ EntityType::Player => (-1000.0, GAME_WORLD_WIDTH + 1000.0, 0.0, GAME_WORLD_HEIGH
 
 ### After
 - **Infinite horizontal exploration** - no left/right limits
-- **Above horizon exploration** - can explore "sky" areas
-- **Seamless world expansion** - ground appears automatically
-- **True open world feeling** - no artificial boundaries
+- **Horizon line maintained** - keeps visual boundary at Y=640.0 for atmospheric effect
+- **Seamless world expansion** - ground appears automatically below horizon
+- **True open world feeling** - no artificial horizontal boundaries
 
 ## Performance Considerations
 
