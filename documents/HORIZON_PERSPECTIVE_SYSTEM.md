@@ -263,6 +263,178 @@ if current_y > HORIZON_LINE && y_movement > 0.0 {
 }
 ```
 
+### Version 1.4 - Fog-Ground Overlap Prevention
+
+**Issue**: Fog of war and ground tiles overlapping, causing visual conflicts and inefficiency
+**Root Cause**: Imprecise overlap detection and lack of priority system between fog and ground
+**Solution**: Comprehensive overlap prevention with ground tile priority
+
+#### Key Improvements
+
+1. **Precise Overlap Detection**
+   - Enhanced `is_area_explored` function with exact rectangle overlap math
+   - Ground tiles always take absolute priority over fog areas
+   - Zero tolerance for any overlap between fog and ground
+
+2. **Automatic Fog Removal**
+   - `remove_overlapping_fog` function removes conflicting fog when ground spawns
+   - Integrated into fog cache invalidation system
+   - Maintains clean separation between explored and unexplored areas
+
+3. **Prevention at Source**
+   - Fog generation checks for ground tiles before creating fog areas
+   - Eliminates overlap creation rather than fixing after the fact
+   - Reduces total fog area count for better performance
+
+4. **Efficiency Monitoring**
+   - Ground-to-fog ratio tracking in debug display
+   - Higher ratios indicate better exploration efficiency
+   - Visual feedback for fog reduction effectiveness
+
+#### Technical Implementation
+
+```rust
+// Precise overlap detection with zero tolerance
+pub fn is_area_explored(ground_tiles: &[GroundTile], fog_x: f32, fog_y: f32) -> bool {
+    ground_tiles.iter().any(|tile| {
+        let tile_right = tile.x + tile_size;
+        let tile_bottom = tile.y + tile_size;
+        let fog_right = fog_x + FOG_TILE_SIZE;
+        let fog_bottom = fog_y + FOG_TILE_SIZE;
+
+        // Check for any overlap between ground tile and fog area
+        !(tile_right <= fog_x || tile.x >= fog_right || 
+          tile_bottom <= fog_y || tile.y >= fog_bottom)
+    })
+}
+
+// Automatic fog cleanup when ground spawns
+pub fn remove_overlapping_fog(fog_areas: &mut Vec<(f32, f32, f32, f32, f32)>, 
+                             ground_tiles: &[GroundTile]) -> usize
+```
+
+#### Performance Benefits
+
+- **Reduced fog count**: Eliminates unnecessary fog areas in explored regions
+- **Clean visual separation**: No more visual conflicts between fog and ground
+- **Better cache efficiency**: Smaller fog area vectors improve rendering performance
+- **Smart priority system**: Ground tiles always win conflicts automatically
+
+### Version 1.5 - Gap Prevention and Grid Alignment
+
+**Issue**: Visible gaps between fog and ground, misaligned ground tile columns
+**Root Cause**: Inconsistent grid alignment and missing coverage between systems
+**Solution**: Comprehensive grid alignment with seamless gap filling
+
+#### Key Improvements
+
+1. **Universal Grid Alignment**
+   - Added `snap_to_grid` utility function for consistent 64x64 positioning
+   - All ground tiles snap to exact grid positions preventing misalignment
+   - Fog generation aligned with ground tile grid boundaries
+   - Eliminated floating-point precision issues in tile positioning
+
+2. **Seamless Gap Filling**
+   - `fill_coverage_gaps` function ensures no empty spaces remain
+   - Automatic detection and filling of gaps around ground tiles
+   - Buffer zone coverage prevents visible empty areas
+   - Comprehensive grid scanning for complete coverage
+
+3. **Enhanced Coverage Strategy**
+   - Added `FOG_BUFFER_TILES` constant for extra coverage around explored areas
+   - Fog generation extends beyond visible bounds to prevent edge gaps
+   - Multi-directional gap detection (8 directions around each ground tile)
+   - Grid-aligned fog positioning eliminates boundary mismatches
+
+4. **Robust Tile Management**
+   - Post-generation grid alignment ensures all tiles are properly positioned
+   - Consistent tile size constants (`TILE_SIZE = 64.0`) throughout system
+   - Improved tolerance checking for overlap detection (reduced to 0.1 for precision)
+   - Cleanup system preserves grid alignment after tile operations
+
+#### Technical Implementation
+
+```rust
+// Universal grid alignment utilities
+pub fn snap_to_grid(coord: f32) -> f32 {
+    (coord / TILE_SIZE).floor() * TILE_SIZE
+}
+
+pub fn snap_position_to_grid(x: f32, y: f32) -> (f32, f32) {
+    (Self::snap_to_grid(x), Self::snap_to_grid(y))
+}
+
+// Gap filling with comprehensive coverage
+fn fill_coverage_gaps(fog_areas: &mut Vec<(f32, f32, f32, f32, f32)>, 
+                     ground_tiles: &[GroundTile], ...) {
+    // Check 8 directions around each ground tile for gaps
+    // Fill any position that lacks both ground and fog coverage
+}
+
+// Constants for seamless coverage
+pub const TILE_SIZE: f32 = 64.0; // Standard tile size
+pub const FOG_BUFFER_TILES: i32 = 2; // Extra tiles to prevent gaps
+```
+
+#### Visual Quality Improvements
+
+- **No more visible gaps**: Complete coverage between fog and ground systems
+- **Perfect tile alignment**: All ground tiles snap to consistent grid positions
+- **Seamless exploration**: Smooth transitions between explored and unexplored areas
+- **Consistent rendering**: Eliminates small columns and misaligned tiles
+
+### Version 1.3 - Fog of War Implementation
+
+**Feature**: Added fog of war effect to cover unexplored areas
+**Purpose**: Provide visual feedback for exploration and enhance depth perception
+**Integration**: Works seamlessly with existing horizon and ground systems
+
+#### Key Features
+
+1. **Unexplored Area Coverage**
+   - Light grey fog covers areas where no ground tiles exist
+   - Fog only appears below the horizon line (y >= 640.0)
+   - Automatically disappears when ground tiles are spawned by horizon movement
+
+2. **Progressive Alpha Transparency**
+   - Fog fades near explored areas for smooth visual transition
+   - Full opacity in completely unexplored regions
+   - Configurable fade distance and minimum transparency
+
+3. **Efficient Spatial Calculation**
+   - Uses larger fog tiles (128x128) for performance
+   - Only calculates fog for visible screen areas
+   - Spatial queries check for ground tile presence
+
+4. **Real-time Visual Feedback**
+   - Debug display shows current fog area count
+   - Fog count decreases as player explores new areas
+   - Works with existing horizon movement detection
+
+#### Technical Implementation
+
+```rust
+// Fog of war constants
+pub const FOG_TILE_SIZE: f32 = 128.0; // Larger tiles for coverage
+pub const FOG_COLOR: [f32; 4] = [0.7, 0.7, 0.7, 0.6]; // Light grey
+pub const FOG_EDGE_FADE: f32 = 32.0; // Distance for edge fading
+pub const FOG_MIN_ALPHA: f32 = 0.3; // Minimum transparency
+
+// Fog detection and rendering
+pub fn is_area_explored(ground_tiles: &[GroundTile], x: f32, y: f32, size: f32) -> bool
+pub fn calculate_fog_alpha(ground_tiles: &[GroundTile], fog_x: f32, fog_y: f32, fog_size: f32) -> f32
+pub fn calculate_fog_areas(...) -> Vec<(f32, f32, f32, f32, f32)> // x, y, width, height, alpha
+```
+
+#### Rendering Pipeline Integration
+
+```rust
+// Fog renders after ground but before other elements
+self.draw_ground_cached(game_state, camera_offset_x, camera_offset_y);
+self.draw_fog_of_war(game_state, camera_offset_x, camera_offset_y);
+self.draw_horizon_indicator(game_state, camera_offset_x, camera_offset_y);
+```
+
 ## Troubleshooting
 
 ### Common Issues
@@ -290,12 +462,40 @@ if current_y > HORIZON_LINE && y_movement > 0.0 {
 - Ensure movement threshold (`1.0`) is appropriate for movement speed
 - Look for "Started moving toward horizon" debug messages
 
+**Fog of war issues**:
+- Verify fog appears in unexplored areas (no ground tiles)
+- Check fog count in debug display decreases as areas are explored
+- Ensure fog only appears below horizon line
+- Monitor fog alpha transparency calculations for smooth transitions
+
 **Performance degradation**:
 - Monitor tile count during horizon movement via debug messages
+- Watch fog area count - high numbers (>100) may indicate performance impact
+- Check for "High fog count" warning in debug display
+- Verify fog caching is working (fog count should be stable when not exploring)
 - Adjust `GROUND_SHIFT_DISTANCE` if needed  
 - Review rate limiting timer (currently 0.033 seconds)
 - Check cleanup frequency and bounds
 - Watch for excessive tile generation in debug output
+
+**Fog caching issues**:
+- Check if fog updates too frequently (should only update when exploring or camera moves significantly)
+- Verify `fog_cache_invalidated` flag is being cleared after cache updates
+- Monitor fog cache invalidation in debug messages
+- Ensure fog performance is stable when not moving toward horizon
+
+**Fog-ground overlap issues**:
+- Verify ground-to-fog ratio increases as exploration progresses
+- Check that fog disappears completely in explored areas
+- Monitor fog area count reduction when ground tiles spawn
+- Ensure ground tiles always take visual priority over fog
+
+**Gap and alignment issues**:
+- Verify no visible empty spaces between fog and ground
+- Check that all ground tiles are perfectly grid-aligned (64x64 positions)
+- Monitor gap filling effectiveness in debug display
+- Ensure seamless coverage during exploration
+- Watch for misaligned tile columns or positioning errors
 
 ## Testing the Improved System
 
@@ -306,10 +506,17 @@ if current_y > HORIZON_LINE && y_movement > 0.0 {
 
 ### Expected Behavior
 1. **Normal Movement**: Horizon line visible but inactive, status shows "INACTIVE"
-2. **Moving Toward Horizon**: Walk upward (W key) toward the horizon line
-3. **Activation**: Status changes to "HORIZON ACTIVE" when accumulated movement > 1.0
-4. **Ground Effect**: New tiles spawn, existing tiles shift, creating forward movement illusion
-5. **Debug Messages**: Console shows tile operations and ground shifting activity
+2. **Fog of War**: Light grey fog covers unexplored areas below horizon
+3. **Moving Toward Horizon**: Walk upward (W key) toward the horizon line
+4. **Activation**: Status changes to "HORIZON ACTIVE" when accumulated movement > 1.0
+5. **Ground Effect**: New tiles spawn, existing tiles shift, creating forward movement illusion
+6. **Fog Reduction**: Fog areas disappear as new ground tiles are generated
+7. **Debug Messages**: Console shows tile operations, ground shifting, and fog area count
+8. **Performance Monitoring**: Watch for "High fog count" warnings if fog areas exceed 100
+9. **Fog-Ground Efficiency**: Monitor ground-to-fog ratio in debug display (higher is better)
+10. **Clean Exploration**: No overlap between ground tiles and fog areas
+11. **Gap-Free Coverage**: No visible empty spaces between systems
+12. **Perfect Alignment**: All tiles positioned on exact 64x64 grid boundaries
 
 ## Conclusion
 
