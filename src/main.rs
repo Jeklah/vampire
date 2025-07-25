@@ -137,7 +137,7 @@ async fn main() {
         game_state.update(&input_handler, delta_time);
 
         // Render the game (removed problematic resolution scaling for cross-platform compatibility)
-        renderer.render(&game_state);
+        renderer.render(&mut game_state);
 
         // Let macroquad handle frame rate limiting via VSync with next_frame()
         // Remove manual frame limiting to allow 60+ FPS

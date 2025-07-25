@@ -18,8 +18,29 @@ pub const HORIZON_MOVEMENT_THRESHOLD: f32 = 1.0; // Minimum movement toward hori
 pub const GROUND_SHIFT_DISTANCE: f32 = 200.0; // How far to shift ground tiles during horizon movement
 pub const HORIZON_UPDATE_RATE: f32 = 0.033; // Update every ~30fps for responsiveness
 
+/// Fog of war constants
+pub const FOG_TILE_SIZE: f32 = 128.0; // Larger tiles for better performance
+pub const FOG_COLOR: [f32; 4] = [0.7, 0.7, 0.7, 0.6]; // Light grey with transparency
+pub const FOG_EDGE_FADE: f32 = 32.0; // Distance for fog edge fading
+pub const FOG_MIN_ALPHA: f32 = 0.3; // Minimum fog transparency
+pub const FOG_EXPANSION_RADIUS: f32 = 128.0; // How far to expand fog beyond visible area
+pub const TILE_SIZE: f32 = 64.0; // Standard tile size for consistent alignment
+pub const FOG_BUFFER_TILES: i32 = 2; // Extra fog tiles around explored areas to prevent gaps
+
 /// World system responsible for entity spawning and world management
 pub struct WorldSystem;
+
+impl WorldSystem {
+    /// Snap a coordinate to the nearest tile grid position
+    pub fn snap_to_grid(coord: f32) -> f32 {
+        (coord / TILE_SIZE).floor() * TILE_SIZE
+    }
+
+    /// Snap coordinates to tile grid and return grid-aligned position
+    pub fn snap_position_to_grid(x: f32, y: f32) -> (f32, f32) {
+        (Self::snap_to_grid(x), Self::snap_to_grid(y))
+    }
+}
 
 impl WorldSystem {
     /// Initialize the game world with all starting entities and environment
@@ -335,27 +356,34 @@ impl WorldSystem {
         *moon = Moon::new();
     }
 
-    /// Initialize ground terrain tiles
+    /// Initialize ground terrain tiles with proper grid alignment
     pub fn initialize_ground_terrain(ground_tiles: &mut Vec<GroundTile>) {
         ground_tiles.clear();
 
-        let tile_size = 64.0;
+        // Generate initial ground around the player spawn area (center of world)
+        let center_x = GAME_WORLD_WIDTH / 2.0;
+        let center_y = GROUND_LEVEL;
 
-        // Generate initial ground in expanded area around the original world
-        let extended_width = GAME_WORLD_WIDTH + 2000.0; // Add 1000 pixels on each side
-        let extended_start_x = -1000.0; // Start 1000 pixels to the left
+        // Generate tiles in a reasonable area around the spawn point, grid-aligned
+        let initial_area_size = 800.0;
+        let start_x = Self::snap_to_grid(center_x - initial_area_size);
+        let end_x = Self::snap_to_grid(center_x + initial_area_size);
 
-        // Calculate tiles for expanded area
-        let tiles_across = (extended_width / tile_size).ceil() as i32;
-        // Cover area from horizon to expanded bottom only
-        let tiles_down = ((GAME_WORLD_HEIGHT * 2.0 - GROUND_LEVEL) / tile_size).ceil() as i32;
+        // Generate from horizon down to well below ground level, grid-aligned
+        let start_y = Self::snap_to_grid(HORIZON_LINE);
+        let end_y = Self::snap_to_grid(center_y + initial_area_size);
 
-        for x in (0..tiles_across).map(|i| extended_start_x + (i as f32 * tile_size)) {
-            // Start from horizon line (GROUND_LEVEL) downwards only
-            for y in (0..tiles_down).map(|i| GROUND_LEVEL + (i as f32 * tile_size)) {
-                let tile_type = Self::determine_tile_type();
-                ground_tiles.push(GroundTile::new(x, y, tile_type));
+        let mut x = start_x;
+        while x <= end_x {
+            let mut y = start_y;
+            while y <= end_y {
+                if y >= HORIZON_LINE {
+                    let tile_type = Self::determine_tile_type();
+                    ground_tiles.push(GroundTile::new(x, y, tile_type));
+                }
+                y += TILE_SIZE;
             }
+            x += TILE_SIZE;
         }
     }
 
@@ -382,7 +410,7 @@ impl WorldSystem {
         // Calculate screen-based bounds for better tile management
         let screen_width = 1280.0; // Approximate screen width
         let screen_height = 720.0; // Approximate screen height
-        let tile_size = 64.0;
+        let _tile_size = 64.0;
 
         // More conservative cleanup bounds based on visible area
         let cleanup_x_range = screen_width * 1.5; // Keep tiles 1.5 screen widths around player
@@ -396,23 +424,23 @@ impl WorldSystem {
             }
         }
 
-        // Generate new ground tiles more conservatively
-        let tiles_to_generate_x = (cleanup_x_range as f32 / tile_size).ceil() as i32;
-        let start_x = ((player_x - cleanup_x_range as f32 / 2.0) / tile_size).floor() * tile_size;
+        // Generate new ground tiles with proper grid alignment
+        let tiles_to_generate_x = (cleanup_x_range as f32 / TILE_SIZE).ceil() as i32;
+        let start_x = Self::snap_to_grid(player_x - cleanup_x_range as f32 / 2.0);
 
         let mut tiles_added = 0;
 
         // Add new tiles at the horizon area where player is moving
         for i in 0..tiles_to_generate_x {
-            let x = start_x + (i as f32 * tile_size);
+            let x = start_x + (i as f32 * TILE_SIZE);
 
             // Add tiles at the horizon line and slightly below (more rows for better coverage)
             for row in 0..4 {
-                let y = HORIZON_LINE + (row as f32 * tile_size);
+                let y = Self::snap_to_grid(HORIZON_LINE) + (row as f32 * TILE_SIZE);
 
                 // Check if we already have a tile at this position with better tolerance
                 let tile_exists = ground_tiles.iter().any(|tile| {
-                    (tile.x - x).abs() < tile_size * 0.6 && (tile.y - y).abs() < tile_size * 0.6
+                    (tile.x - x).abs() < TILE_SIZE * 0.1 && (tile.y - y).abs() < TILE_SIZE * 0.1
                 });
 
                 if !tile_exists {
@@ -425,15 +453,24 @@ impl WorldSystem {
 
         // Cleanup tiles that are extremely far from player OR above horizon line
         // This preserves ground tiles behind the player for persistent world feeling
+        // Clean up tiles using screen-relative bounds instead of fixed distance
         let before_cleanup = ground_tiles.len();
-        let very_far_distance = 5000.0; // Much larger distance before cleanup
         ground_tiles.retain(|tile| {
-            let distance_from_player =
-                ((tile.x - player_x).powi(2) + (tile.y - player_y).powi(2)).sqrt();
-            distance_from_player < very_far_distance && tile.y >= GROUND_LEVEL
+            let x_in_range = (tile.x - player_x).abs() < cleanup_x_range;
+            let y_in_range = (tile.y - player_y).abs() < cleanup_y_range;
+            let not_too_far_down = tile.y < GAME_WORLD_HEIGHT + 200.0;
+
+            x_in_range && y_in_range && not_too_far_down
         });
         let after_cleanup = ground_tiles.len();
         let tiles_removed = before_cleanup - after_cleanup;
+
+        // Ensure grid alignment after cleanup and generation
+        for tile in ground_tiles.iter_mut() {
+            let (aligned_x, aligned_y) = Self::snap_position_to_grid(tile.x, tile.y);
+            tile.x = aligned_x;
+            tile.y = aligned_y;
+        }
 
         // Add debug information for significant changes
         if tiles_added > 0 || tiles_removed > 0 {
@@ -454,6 +491,233 @@ impl WorldSystem {
                 "Ground shift: {:.1} units, horizon detection active",
                 movement_distance
             ));
+        }
+    }
+
+    /// Remove fog areas that overlap with newly spawned ground tiles
+    pub fn remove_overlapping_fog(
+        fog_areas: &mut Vec<(f32, f32, f32, f32, f32)>,
+        ground_tiles: &[GroundTile],
+    ) -> usize {
+        let initial_count = fog_areas.len();
+        let _tile_size = 64.0;
+
+        fog_areas.retain(|(fog_x, fog_y, fog_width, fog_height, _alpha)| {
+            let fog_right = fog_x + fog_width;
+            let fog_bottom = fog_y + fog_height;
+
+            // Keep fog only if it doesn't overlap with any ground tile
+            !ground_tiles.iter().any(|tile| {
+                let tile_right = tile.x + TILE_SIZE;
+                let tile_bottom = tile.y + TILE_SIZE;
+
+                // Check for any overlap
+                !(tile_right <= *fog_x
+                    || tile.x >= fog_right
+                    || tile_bottom <= *fog_y
+                    || tile.y >= fog_bottom)
+            })
+        });
+
+        initial_count - fog_areas.len()
+    }
+
+    /// Check if an area has been explored (contains ground tiles) - optimized for no overlaps
+    pub fn is_area_explored(ground_tiles: &[GroundTile], fog_x: f32, fog_y: f32) -> bool {
+        let _tile_size = TILE_SIZE;
+
+        // Use expanded overlap detection to prevent any fog near ground tiles
+        // This ensures fog never overlaps with existing ground
+        ground_tiles.iter().any(|tile| {
+            let tile_right = tile.x + TILE_SIZE;
+            let tile_bottom = tile.y + TILE_SIZE;
+            let fog_right = fog_x + FOG_TILE_SIZE;
+            let fog_bottom = fog_y + FOG_TILE_SIZE;
+
+            // Check for any overlap between ground tile and fog area
+            !(tile_right <= fog_x
+                || tile.x >= fog_right
+                || tile_bottom <= fog_y
+                || tile.y >= fog_bottom)
+        })
+    }
+
+    /// Calculate fog transparency based on distance to explored areas (optimized for grid alignment)
+    pub fn calculate_fog_alpha(
+        ground_tiles: &[GroundTile],
+        fog_x: f32,
+        fog_y: f32,
+        _fog_size: f32,
+    ) -> f32 {
+        let mut min_distance = f32::MAX;
+
+        // Check neighboring grid positions for closest explored tile
+        let search_radius = FOG_EDGE_FADE + FOG_TILE_SIZE;
+
+        for tile in ground_tiles.iter() {
+            // Quick distance check to avoid expensive calculations
+            let dx = tile.x - fog_x;
+            let dy = tile.y - fog_y;
+
+            if dx.abs() <= search_radius && dy.abs() <= search_radius {
+                let distance = (dx * dx + dy * dy).sqrt();
+                min_distance = min_distance.min(distance);
+            }
+        }
+
+        // Calculate alpha with smooth transition near explored areas
+        if min_distance >= FOG_EDGE_FADE {
+            FOG_COLOR[3] // Full fog opacity for distant areas
+        } else if min_distance <= FOG_TILE_SIZE {
+            FOG_MIN_ALPHA // Minimum opacity near explored areas
+        } else {
+            // Smooth interpolation between near and far
+            let fade_factor = (min_distance - FOG_TILE_SIZE) / (FOG_EDGE_FADE - FOG_TILE_SIZE);
+            FOG_MIN_ALPHA + (FOG_COLOR[3] - FOG_MIN_ALPHA) * fade_factor
+        }
+    }
+
+    /// Generate fog areas for unexplored regions with transparency
+    pub fn calculate_fog_areas(
+        ground_tiles: &[GroundTile],
+        camera_x: f32,
+        camera_y: f32,
+        screen_width: f32,
+        screen_height: f32,
+        zoom_level: f32,
+    ) -> Vec<(f32, f32, f32, f32, f32)> {
+        let mut fog_areas = Vec::new();
+
+        // Expand visible area to ensure complete fog coverage with buffer
+        let world_left = camera_x - (screen_width / (2.0 * zoom_level)) - FOG_EXPANSION_RADIUS;
+        let world_right = camera_x + (screen_width / (2.0 * zoom_level)) + FOG_EXPANSION_RADIUS;
+        let world_top = camera_y - (screen_height / (2.0 * zoom_level)) - FOG_EXPANSION_RADIUS;
+        let world_bottom = camera_y + (screen_height / (2.0 * zoom_level)) + FOG_EXPANSION_RADIUS;
+
+        // Align fog grid to tile boundaries to prevent gaps
+        let grid_start_x = Self::snap_to_grid(world_left);
+        let grid_start_y = Self::snap_to_grid(HORIZON_LINE.max(world_top));
+
+        // Generate fog grid aligned with ground tiles, with extra buffer coverage
+        let fog_cols =
+            ((world_right - grid_start_x) / FOG_TILE_SIZE).ceil() as i32 + FOG_BUFFER_TILES;
+        let fog_rows =
+            ((world_bottom - grid_start_y) / FOG_TILE_SIZE).ceil() as i32 + FOG_BUFFER_TILES;
+
+        for col in 0..fog_cols {
+            for row in 0..fog_rows {
+                let fog_x = grid_start_x + col as f32 * FOG_TILE_SIZE;
+                let fog_y = grid_start_y + row as f32 * FOG_TILE_SIZE;
+
+                // Only add fog if area hasn't been explored and is below horizon
+                // Use the already optimized exploration check
+                if fog_y >= HORIZON_LINE && !Self::is_area_explored(ground_tiles, fog_x, fog_y) {
+                    fog_areas.push((fog_x, fog_y, FOG_TILE_SIZE, FOG_TILE_SIZE, FOG_COLOR[3]));
+                }
+            }
+        }
+
+        // Add gap filling to ensure seamless coverage
+        Self::fill_coverage_gaps(
+            &mut fog_areas,
+            ground_tiles,
+            grid_start_x,
+            grid_start_y,
+            fog_cols,
+            fog_rows,
+        );
+
+        fog_areas
+    }
+
+    /// Fill any gaps between fog and ground to ensure seamless coverage
+    fn fill_coverage_gaps(
+        fog_areas: &mut Vec<(f32, f32, f32, f32, f32)>,
+        ground_tiles: &[GroundTile],
+        grid_start_x: f32,
+        grid_start_y: f32,
+        fog_cols: i32,
+        fog_rows: i32,
+    ) {
+        // Check for gaps around existing ground tiles
+        for tile in ground_tiles {
+            // Check 8 directions around each ground tile for gaps
+            let directions = [
+                (-1, -1),
+                (-1, 0),
+                (-1, 1),
+                (0, -1),
+                (0, 1),
+                (1, -1),
+                (1, 0),
+                (1, 1),
+            ];
+
+            for (dx, dy) in directions.iter() {
+                let check_x = Self::snap_to_grid(tile.x + (*dx as f32 * TILE_SIZE));
+                let check_y = Self::snap_to_grid(tile.y + (*dy as f32 * TILE_SIZE));
+
+                // Only fill gaps below horizon
+                if check_y >= HORIZON_LINE {
+                    // Check if this position needs coverage
+                    let has_ground = ground_tiles.iter().any(|t| {
+                        (t.x - check_x).abs() < TILE_SIZE * 0.5
+                            && (t.y - check_y).abs() < TILE_SIZE * 0.5
+                    });
+
+                    let has_fog = fog_areas.iter().any(|(fx, fy, _, _, _)| {
+                        (fx - check_x).abs() < FOG_TILE_SIZE * 0.5
+                            && (fy - check_y).abs() < FOG_TILE_SIZE * 0.5
+                    });
+
+                    // Fill gap if neither ground nor fog exists
+                    if !has_ground && !has_fog {
+                        fog_areas.push((
+                            check_x,
+                            check_y,
+                            FOG_TILE_SIZE,
+                            FOG_TILE_SIZE,
+                            FOG_COLOR[3],
+                        ));
+                    }
+                }
+            }
+        }
+
+        // Fill any remaining grid gaps in the fog area
+        for col in 0..fog_cols {
+            for row in 0..fog_rows {
+                let grid_x = grid_start_x + col as f32 * FOG_TILE_SIZE;
+                let grid_y = grid_start_y + row as f32 * FOG_TILE_SIZE;
+
+                if grid_y >= HORIZON_LINE {
+                    let has_coverage = ground_tiles.iter().any(|tile| {
+                        let tile_right = tile.x + TILE_SIZE;
+                        let tile_bottom = tile.y + TILE_SIZE;
+                        let grid_right = grid_x + FOG_TILE_SIZE;
+                        let grid_bottom = grid_y + FOG_TILE_SIZE;
+
+                        !(tile_right <= grid_x
+                            || tile.x >= grid_right
+                            || tile_bottom <= grid_y
+                            || tile.y >= grid_bottom)
+                    }) || fog_areas.iter().any(|(fx, fy, _, _, _)| {
+                        (fx - grid_x).abs() < FOG_TILE_SIZE * 0.5
+                            && (fy - grid_y).abs() < FOG_TILE_SIZE * 0.5
+                    });
+
+                    // Add fog if no coverage exists
+                    if !has_coverage {
+                        fog_areas.push((
+                            grid_x,
+                            grid_y,
+                            FOG_TILE_SIZE,
+                            FOG_TILE_SIZE,
+                            FOG_COLOR[3],
+                        ));
+                    }
+                }
+            }
         }
     }
 
@@ -575,7 +839,7 @@ impl WorldSystem {
         debug_messages: &mut Vec<String>,
     ) {
         let tile_size = 64.0;
-        let directional_distance = 256.0; // Spawn ahead in all directions
+        let _directional_distance = 256.0; // Spawn ahead in all directions
 
         // Spawn in 8 directions around player (N, NE, E, SE, S, SW, W, NW)
         let directions = [

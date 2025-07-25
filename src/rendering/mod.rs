@@ -13,7 +13,7 @@ pub struct Renderer {
     performance_mode: bool,
     last_entity_count: usize,
     last_tile_count: usize,
-    // Ground rendering cache
+    // Camera tracking for performance decisions
     last_camera_x: f32,
     last_camera_y: f32,
     camera_moved_significantly: bool,
@@ -22,6 +22,11 @@ pub struct Renderer {
     ui_scale: f32,
     base_width: f32,
     base_height: f32,
+    // Fog caching for performance
+    cached_fog_areas: Vec<(f32, f32, f32, f32, f32)>,
+    fog_cache_valid: bool,
+    last_fog_camera_x: f32,
+    last_fog_camera_y: f32,
 }
 
 impl Renderer {
@@ -34,11 +39,15 @@ impl Renderer {
             last_tile_count: 0,
             last_camera_x: 0.0,
             last_camera_y: 0.0,
-            camera_moved_significantly: true,
+            camera_moved_significantly: false,
             frame_skip_counter: 0,
             ui_scale: 1.0,
             base_width: 1280.0,
             base_height: 720.0,
+            cached_fog_areas: Vec::new(),
+            fog_cache_valid: false,
+            last_fog_camera_x: 0.0,
+            last_fog_camera_y: 0.0,
         }
     }
 
@@ -96,7 +105,7 @@ impl Renderer {
         }
     }
 
-    pub fn render(&mut self, game_state: &GameState) {
+    pub fn render(&mut self, game_state: &mut GameState) {
         // Auto-adjust performance based on player movement speed
         if let Some(player) = game_state
             .entities
@@ -130,6 +139,9 @@ impl Renderer {
 
         // Draw ground with smart caching
         self.draw_ground_cached(game_state, camera_offset_x, camera_offset_y);
+
+        // Draw fog of war over unexplored areas (after ground, before other elements)
+        self.draw_fog_of_war(game_state, camera_offset_x, camera_offset_y);
 
         // Draw subtle horizon indicator (only when moving toward horizon)
         self.draw_horizon_indicator(game_state, camera_offset_x, camera_offset_y);
@@ -930,30 +942,55 @@ impl Renderer {
             );
         }
 
-        // Show movement status and ground tile count
+        // Use cached fog areas for debugging to avoid recalculation
+        let fog_count = self.cached_fog_areas.len();
+
+        // Calculate fog efficiency ratio (ground tiles vs fog areas)
+        let efficiency_ratio = if fog_count > 0 {
+            game_state.ground_tiles.len() as f32 / fog_count as f32
+        } else {
+            0.0
+        };
+
+        // Show movement status and ground tile count with efficiency
         if game_state.is_moving_toward_horizon {
             self.draw_text_with_font(
                 &format!(
-                    "HORIZON ACTIVE - Tiles: {} - Movement: {:.1}",
+                    "HORIZON ACTIVE - Tiles: {} - Fog: {} - Ratio: {:.1} - Movement: {:.1}",
                     game_state.ground_tiles.len(),
+                    fog_count,
+                    efficiency_ratio,
                     game_state.accumulated_horizon_movement
                 ),
                 10.0,
                 30.0,
-                18.0,
+                16.0,
                 Color::new(1.0, 1.0, 0.0, 1.0),
             );
         } else {
-            // Show inactive status
+            // Show inactive status with efficiency
             self.draw_text_with_font(
                 &format!(
-                    "Horizon: INACTIVE - Tiles: {}",
-                    game_state.ground_tiles.len()
+                    "Horizon: INACTIVE - Tiles: {} - Fog: {} - Efficiency: {:.1}",
+                    game_state.ground_tiles.len(),
+                    fog_count,
+                    efficiency_ratio
                 ),
                 10.0,
                 30.0,
-                16.0,
+                14.0,
                 Color::new(0.6, 0.6, 0.8, 0.7),
+            );
+        }
+
+        // Add fog coverage debugging
+        if fog_count > 100 {
+            self.draw_text_with_font(
+                &format!("High fog count: {} areas", fog_count),
+                10.0,
+                90.0,
+                14.0,
+                Color::new(1.0, 0.5, 0.0, 0.8),
             );
         }
 
@@ -971,6 +1008,79 @@ impl Renderer {
                 14.0,
                 Color::new(0.8, 0.8, 1.0, 0.8),
             );
+        }
+    }
+
+    fn draw_fog_of_war(
+        &mut self,
+        game_state: &mut GameState,
+        camera_offset_x: f32,
+        camera_offset_y: f32,
+    ) {
+        use crate::systems::world::{WorldSystem, FOG_COLOR};
+
+        // Check if fog cache needs updating (camera movement or ground tile changes)
+        let camera_moved = (game_state.camera_x - self.last_fog_camera_x).abs() > 100.0
+            || (game_state.camera_y - self.last_fog_camera_y).abs() > 100.0;
+
+        if !self.fog_cache_valid || camera_moved || game_state.fog_cache_invalidated {
+            // Recalculate fog areas only when needed
+            self.cached_fog_areas = WorldSystem::calculate_fog_areas(
+                &game_state.ground_tiles,
+                game_state.camera_x,
+                game_state.camera_y,
+                screen_width(),
+                screen_height(),
+                self.zoom_level,
+            );
+
+            // Remove any fog that overlaps with ground tiles (ground takes priority)
+            let fog_removed = WorldSystem::remove_overlapping_fog(
+                &mut self.cached_fog_areas,
+                &game_state.ground_tiles,
+            );
+
+            // Debug info for fog reduction efficiency
+            if fog_removed > 0 && game_state.fog_cache_invalidated {
+                // Log fog reduction when ground tiles cause overlap removal
+                let efficiency_improvement =
+                    fog_removed as f32 / self.cached_fog_areas.len().max(1) as f32 * 100.0;
+
+                // Add efficiency indicator to corner display
+                if fog_removed > 5 {
+                    // Show significant fog reduction
+                }
+            }
+
+            self.fog_cache_valid = true;
+            self.last_fog_camera_x = game_state.camera_x;
+            self.last_fog_camera_y = game_state.camera_y;
+
+            // Clear the invalidation flag after cache update
+            game_state.clear_fog_cache_invalidation();
+        }
+
+        // Draw cached fog rectangles
+        for (fog_x, fog_y, fog_width, fog_height, alpha) in &self.cached_fog_areas {
+            let screen_x = fog_x * self.zoom_level + camera_offset_x;
+            let screen_y = fog_y * self.zoom_level + camera_offset_y;
+            let fog_screen_width = fog_width * self.zoom_level;
+            let fog_screen_height = fog_height * self.zoom_level;
+
+            // Only draw if visible on screen
+            if screen_x + fog_screen_width > 0.0
+                && screen_x < screen_width()
+                && screen_y + fog_screen_height > 0.0
+                && screen_y < screen_height()
+            {
+                draw_rectangle(
+                    screen_x,
+                    screen_y,
+                    fog_screen_width,
+                    fog_screen_height,
+                    Color::new(FOG_COLOR[0], FOG_COLOR[1], FOG_COLOR[2], *alpha),
+                );
+            }
         }
     }
 

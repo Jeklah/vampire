@@ -42,6 +42,7 @@ pub struct GameState {
     pub is_moving_toward_horizon: bool,
     pub ground_update_timer: f32,
     pub accumulated_horizon_movement: f32,
+    pub fog_cache_invalidated: bool,
 
     // Ground generation tracking for all directions
     pub last_player_x: f32,
@@ -90,6 +91,7 @@ impl GameState {
             is_moving_toward_horizon: false,
             ground_update_timer: 0.0,
             accumulated_horizon_movement: 0.0,
+            fog_cache_invalidated: false,
             last_player_x: 400.0,     // Player spawn X position
             movement_threshold: 32.0, // Generate ground when player moves 32 pixels
             debug_messages: Vec::new(),
@@ -522,6 +524,11 @@ impl GameState {
         *self = Self::new();
     }
 
+    /// Clear fog cache invalidation flag (called by renderer)
+    pub fn clear_fog_cache_invalidation(&mut self) {
+        self.fog_cache_invalidated = false;
+    }
+
     /// Detect horizon movement with accumulated tracking
     fn update_horizon_movement_detection(&mut self) {
         use crate::systems::world::{HORIZON_LINE, HORIZON_MOVEMENT_THRESHOLD};
@@ -585,6 +592,9 @@ impl GameState {
                         movement_distance,
                         &mut self.debug_messages,
                     );
+
+                    // Signal that fog cache needs update due to ground tile changes
+                    self.fog_cache_invalidated = true;
                 }
 
                 self.ground_update_timer = 0.0;
