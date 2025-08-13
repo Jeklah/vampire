@@ -49,12 +49,17 @@ pub struct GameState {
     pub world_scroll_offset: f32,
     pub player_attempting_horizon_movement: bool,
 
+    // Performance optimization - cached player reference
+    pub player_entity_index: Option<usize>,
+
     // Ground generation tracking for all directions
     pub last_player_x: f32,
     pub movement_threshold: f32,
 
-    // Debug message log
+    // Debug message log (ring buffer for performance)
     pub debug_messages: Vec<String>,
+    pub debug_message_index: usize,
+    pub max_debug_messages: usize,
 
     // UI state
     pub paused: bool,
@@ -100,9 +105,12 @@ impl GameState {
             virtual_horizon_distance: 0.0,
             world_scroll_offset: 0.0,
             player_attempting_horizon_movement: false,
+            player_entity_index: None,
             last_player_x: 400.0,     // Player spawn X position
             movement_threshold: 32.0, // Generate ground when player moves 32 pixels
-            debug_messages: Vec::new(),
+            debug_messages: Vec::with_capacity(50),
+            debug_message_index: 0,
+            max_debug_messages: 50,
         };
 
         // Initialize the world using the world system
@@ -344,13 +352,35 @@ impl GameState {
 
     /// Update camera to follow player with horizon walking support
     fn update_camera(&mut self) {
-        if let Some(player) = EntityFinder::by_id(&self.entities, self.player_id) {
-            self.camera_x = player.position.x;
-
-            // Handle virtual horizon walking - camera follows player normally
-            self.camera_x = player.position.x;
-            self.camera_y = player.position.y;
+        if let Some((player_pos, _)) = self.get_cached_player_data() {
+            self.camera_x = player_pos.x;
+            self.camera_y = player_pos.y;
         }
+    }
+
+    /// Get cached player position and data for performance (returns copy to avoid borrow issues)
+    fn get_cached_player_data(&mut self) -> Option<(Position, f32)> {
+        // Update cache if invalid
+        if let Some(index) = self.player_entity_index {
+            if index >= self.entities.len() || self.entities[index].id != self.player_id {
+                self.player_entity_index = None;
+            }
+        }
+
+        // Find player if not cached
+        if self.player_entity_index.is_none() {
+            for (index, entity) in self.entities.iter().enumerate() {
+                if entity.id == self.player_id {
+                    self.player_entity_index = Some(index);
+                    break;
+                }
+            }
+        }
+
+        // Return cached player data (copy to avoid borrowing issues)
+        self.player_entity_index
+            .and_then(|index| self.entities.get(index))
+            .map(|player| (player.position, player.position.y))
     }
 
     /// Check for and handle phase progression
@@ -523,10 +553,13 @@ impl GameState {
 
     /// Add a debug message to the log
     pub fn add_debug_message(&mut self, message: String) {
-        self.debug_messages.push(message);
-        // Keep only the last 20 messages
-        if self.debug_messages.len() > 20 {
-            self.debug_messages.remove(0);
+        // Use ring buffer for performance - no allocations or removals
+        if self.debug_messages.len() < self.max_debug_messages {
+            self.debug_messages.push(message);
+        } else {
+            // Overwrite oldest message
+            self.debug_messages[self.debug_message_index] = message;
+            self.debug_message_index = (self.debug_message_index + 1) % self.max_debug_messages;
         }
     }
 
@@ -544,12 +577,7 @@ impl GameState {
     fn update_horizon_movement_detection(&mut self) {
         use crate::systems::world::{HORIZON_LINE, HORIZON_MOVEMENT_THRESHOLD};
 
-        if let Some(player) = self
-            .entities
-            .iter()
-            .find(|e| matches!(e.entity_type, EntityType::Player))
-        {
-            let current_y = player.position.y;
+        if let Some((player_pos, current_y)) = self.get_cached_player_data() {
             let y_movement = self.last_player_y - current_y;
 
             // Detect when player is trying to move beyond horizon
@@ -608,103 +636,86 @@ impl GameState {
         use crate::systems::world::{WorldSystem, GROUND_SHIFT_DISTANCE};
 
         if self.is_moving_toward_horizon {
-            // Rate limit ground updates for better responsiveness
+            // Less frequent updates for better performance
             self.ground_update_timer += 1.0 / 60.0; // Assume 60 FPS
 
-            if self.ground_update_timer >= crate::systems::world::HORIZON_UPDATE_RATE {
-                // Update every ~30fps for responsive feel
-                if let Some(player) = self
-                    .entities
-                    .iter()
-                    .find(|e| matches!(e.entity_type, EntityType::Player))
-                {
-                    // Calculate movement distance based on world scroll
+            // Update every 0.1 seconds instead of 0.033 for better performance
+            if self.ground_update_timer >= 0.1 {
+                if let Some((player_pos, _)) = self.get_cached_player_data() {
+                    // Larger movement distance per update since we update less frequently
                     let movement_distance = if self.world_scroll_offset > 0.0 {
-                        GROUND_SHIFT_DISTANCE * 0.15 // Scroll world content downward
+                        GROUND_SHIFT_DISTANCE * 0.3 // Larger scroll for less frequent updates
                     } else {
-                        GROUND_SHIFT_DISTANCE * 0.08 // Normal horizon effect
+                        GROUND_SHIFT_DISTANCE * 0.15 // Larger normal effect
                     };
 
-                    WorldSystem::shift_ground_for_horizon_movement(
-                        &mut self.ground_tiles,
-                        player.position.x,
-                        player.position.y,
-                        movement_distance,
-                        &mut self.debug_messages,
-                    );
+                    // Only update if there are not too many ground tiles already
+                    if self.ground_tiles.len() < 200 {
+                        WorldSystem::shift_ground_for_horizon_movement(
+                            &mut self.ground_tiles,
+                            player_pos.x,
+                            player_pos.y,
+                            movement_distance,
+                            &mut self.debug_messages,
+                        );
+                    }
 
-                    // Shift all entities downward to simulate world scrolling
-                    if self.world_scroll_offset > 0.0 {
+                    // Shift entities less frequently
+                    if self.world_scroll_offset > 0.0 && self.ground_update_timer >= 0.2 {
                         self.shift_world_entities(movement_distance);
                     }
 
-                    // Generate new content based on virtual distance
-                    self.generate_horizon_content();
+                    // Generate content less frequently
+                    if self.virtual_horizon_distance > 0.0
+                        && (self.virtual_horizon_distance as u32) % 50 == 0
+                    {
+                        self.generate_horizon_content();
+                    }
 
-                    // Signal that fog cache needs update due to world changes
+                    // Signal fog cache update less frequently
                     self.fog_cache_invalidated = true;
-
-                    // Reset scroll offset after applying
                     self.world_scroll_offset = 0.0;
                 }
 
                 self.ground_update_timer = 0.0;
             }
         } else {
-            // Reset timer when not moving toward horizon
             self.ground_update_timer = 0.0;
         }
     }
 
     /// Ensure ground tiles exist near the player position with movement-based generation
     fn ensure_ground_near_player(&mut self) {
-        if let Some(player) = self
-            .entities
-            .iter()
-            .find(|e| matches!(e.entity_type, EntityType::Player))
-        {
+        if let Some((player_pos, _)) = self.get_cached_player_data() {
             use crate::systems::world::WorldSystem;
 
             // Check if player has moved significantly in any direction
-            let movement_x = (player.position.x - self.last_player_x).abs();
-            let movement_y = (player.position.y - self.last_player_y).abs();
+            let movement_x = (player_pos.x - self.last_player_x).abs();
+            let movement_y = (player_pos.y - self.last_player_y).abs();
             let significant_movement =
                 movement_x > self.movement_threshold || movement_y > self.movement_threshold;
 
-            // Generate ground on significant movement or periodically
-            if significant_movement || self.ground_update_timer <= 0.0 {
+            // Only generate ground if we don't have too many tiles and player moved significantly
+            if significant_movement && self.ground_tiles.len() < 150 {
                 WorldSystem::ensure_ground_near_player(
                     &mut self.ground_tiles,
-                    player.position.x,
-                    player.position.y,
+                    player_pos.x,
+                    player_pos.y,
                     &mut self.debug_messages,
                 );
 
-                // Update tracking
-                if significant_movement {
-                    self.last_player_x = player.position.x;
-                    self.ground_update_timer = 0.5; // Reset timer after movement-based generation
-                }
-            }
-
-            // Decrement timer for periodic updates
-            self.ground_update_timer -= 1.0 / 60.0; // Assume 60 FPS
-            if self.ground_update_timer < 0.0 {
-                self.ground_update_timer = 2.0; // Generate every 2 seconds as fallback
+                // Update tracking with larger threshold to reduce frequency
+                self.last_player_x = player_pos.x;
+                self.movement_threshold = 64.0; // Larger threshold for less frequent updates
             }
         }
 
-        // Additional directional spawning for movement responsiveness
-        self.spawn_directional_ground_for_player();
+        // Skip directional spawning for performance
     }
 
     /// Additional directional spawning for movement responsiveness
     fn spawn_directional_ground_for_player(&mut self) {
-        if let Some(_player) = self
-            .entities
-            .iter()
-            .find(|e| matches!(e.entity_type, EntityType::Player))
-        {
+        if let Some(_) = self.get_cached_player_data() {
             // Skip directional ground spawning for now - method is private
         }
     }
@@ -732,15 +743,17 @@ impl GameState {
         use crate::systems::world::WorldSystem;
 
         // Only generate content when virtual distance reaches certain thresholds
-        let generation_threshold = 100.0; // Generate content every 100 units of virtual walking
+        let generation_threshold = 200.0; // Generate content every 200 units for less frequency
         let content_tier = (self.virtual_horizon_distance / generation_threshold) as u32;
 
-        // Generate content based on how far the player has "walked"
+        // Generate content based on how far the player has "walked", but limit entity count
         if content_tier > 0
-            && ((content_tier as f32) * 100.0 - self.virtual_horizon_distance).abs() < 10.0
+            && ((content_tier as f32) * 200.0 - self.virtual_horizon_distance).abs() < 20.0
+            && self.entities.len() < 50
+        // Limit total entities for performance
         {
-            // Generate new enemies
-            if rand::gen_range(0.0, 1.0) < 0.7 {
+            // Generate new enemies less frequently
+            if rand::gen_range(0.0, 1.0) < 0.4 {
                 let spawn_x = self.camera_x + rand::gen_range(-400.0, 400.0);
                 let spawn_y = crate::systems::world::HORIZON_LINE + rand::gen_range(0.0, 200.0);
 
@@ -750,12 +763,10 @@ impl GameState {
                     spawn_x,
                     spawn_y,
                 );
-
-                self.add_debug_message("Generated new hostile infected".to_string());
             }
 
-            // Generate new animals
-            if rand::gen_range(0.0, 1.0) < 0.5 {
+            // Generate new animals less frequently
+            if rand::gen_range(0.0, 1.0) < 0.3 {
                 let spawn_x = self.camera_x + rand::gen_range(-300.0, 300.0);
                 let spawn_y = crate::systems::world::HORIZON_LINE + rand::gen_range(0.0, 150.0);
 
@@ -765,12 +776,10 @@ impl GameState {
                     spawn_x,
                     spawn_y,
                 );
-
-                self.add_debug_message("Generated new animal".to_string());
             }
 
-            // Generate new shelters occasionally
-            if rand::gen_range(0.0, 1.0) < 0.3 {
+            // Generate shelters very rarely
+            if rand::gen_range(0.0, 1.0) < 0.1 {
                 use crate::components::{ShelterCondition, ShelterType};
                 use crate::systems::ShelterSystem;
 
@@ -780,7 +789,7 @@ impl GameState {
                 let shelter_types = [ShelterType::Cave, ShelterType::Ruins];
                 let shelter_type = shelter_types[rand::gen_range(0, shelter_types.len())].clone();
 
-                let _shelter_id = ShelterSystem::spawn_shelter(
+                ShelterSystem::spawn_shelter(
                     &mut self.entities,
                     &mut self.next_entity_id,
                     shelter_type,
@@ -789,12 +798,6 @@ impl GameState {
                     Some(ShelterCondition::Good),
                     Some("Generated Shelter".to_string()),
                 );
-                if _shelter_id > 0 {
-                    self.add_debug_message(format!(
-                        "Generated new shelter at ({:.0}, {:.0})",
-                        spawn_x, spawn_y
-                    ));
-                }
             }
         }
     }

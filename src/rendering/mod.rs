@@ -213,17 +213,28 @@ impl Renderer {
         // Use high-performance iterator with pre-allocated capacity
         visible_entities.reserve(game_state.entities.len() / 2);
 
-        // First pass: cull and collect visible entities using optimized iteration
-        for entity in game_state.entities.alive_entities() {
-            // Skip shelter entities (rendered separately)
+        // First pass: cull and collect visible entities with optimized distance check
+        for entity in &game_state.entities {
+            // Skip shelters as they're rendered separately
             if matches!(entity.entity_type, EntityType::Shelter) {
+                continue;
+            }
+
+            // Early distance check for performance
+            let dx = entity.position.x - game_state.camera_x;
+            let dy = entity.position.y - game_state.camera_y;
+            let distance_squared = dx * dx + dy * dy;
+
+            // Skip entities too far from camera (beyond screen + margin)
+            let max_distance = (screen_w + screen_h) * 0.75 / self.zoom_level;
+            if distance_squared > max_distance * max_distance {
                 continue;
             }
 
             let screen_x = entity.position.x * self.zoom_level + camera_offset_x;
             let screen_y = entity.position.y * self.zoom_level + camera_offset_y;
 
-            // Improved culling with tighter bounds
+            // Enhanced frustum culling
             if screen_x > -cull_margin
                 && screen_x < screen_w + cull_margin
                 && screen_y > -cull_margin
@@ -1048,36 +1059,28 @@ impl Renderer {
     ) {
         use crate::systems::world::{WorldSystem, FOG_COLOR};
 
-        // Check if fog cache needs updating (camera movement or ground tile changes)
-        let camera_moved = (game_state.camera_x - self.last_fog_camera_x).abs() > 100.0
-            || (game_state.camera_y - self.last_fog_camera_y).abs() > 100.0;
+        // Check if fog cache needs updating (less frequent updates for performance)
+        let camera_moved = (game_state.camera_x - self.last_fog_camera_x).abs() > 200.0
+            || (game_state.camera_y - self.last_fog_camera_y).abs() > 200.0;
 
         if !self.fog_cache_valid || camera_moved || game_state.fog_cache_invalidated {
-            // Recalculate fog areas only when needed
-            self.cached_fog_areas = WorldSystem::calculate_fog_areas(
-                &game_state.ground_tiles,
-                game_state.camera_x,
-                game_state.camera_y,
-                screen_width(),
-                screen_height(),
-                self.zoom_level,
-            );
+            // Limit fog calculations for performance - only recalculate if really needed
+            if self.cached_fog_areas.len() < 100 || camera_moved {
+                self.cached_fog_areas = WorldSystem::calculate_fog_areas(
+                    &game_state.ground_tiles,
+                    game_state.camera_x,
+                    game_state.camera_y,
+                    screen_width(),
+                    screen_height(),
+                    self.zoom_level,
+                );
 
-            // Remove any fog that overlaps with ground tiles (ground takes priority)
-            let fog_removed = WorldSystem::remove_overlapping_fog(
-                &mut self.cached_fog_areas,
-                &game_state.ground_tiles,
-            );
-
-            // Debug info for fog reduction efficiency
-            if fog_removed > 0 && game_state.fog_cache_invalidated {
-                // Log fog reduction when ground tiles cause overlap removal
-                let efficiency_improvement =
-                    fog_removed as f32 / self.cached_fog_areas.len().max(1) as f32 * 100.0;
-
-                // Add efficiency indicator to corner display
-                if fog_removed > 5 {
-                    // Show significant fog reduction
+                // Skip overlap removal for performance if there are too many fog areas
+                if self.cached_fog_areas.len() < 50 {
+                    WorldSystem::remove_overlapping_fog(
+                        &mut self.cached_fog_areas,
+                        &game_state.ground_tiles,
+                    );
                 }
             }
 
@@ -1089,18 +1092,19 @@ impl Renderer {
             game_state.clear_fog_cache_invalidation();
         }
 
-        // Draw cached fog rectangles
+        // Draw cached fog rectangles with enhanced culling
+        let margin = 50.0;
         for (fog_x, fog_y, fog_width, fog_height, alpha) in &self.cached_fog_areas {
             let screen_x = fog_x * self.zoom_level + camera_offset_x;
             let screen_y = fog_y * self.zoom_level + camera_offset_y;
             let fog_screen_width = fog_width * self.zoom_level;
             let fog_screen_height = fog_height * self.zoom_level;
 
-            // Only draw if visible on screen
-            if screen_x + fog_screen_width > 0.0
-                && screen_x < screen_width()
-                && screen_y + fog_screen_height > 0.0
-                && screen_y < screen_height()
+            // Enhanced visibility check with margin for better culling
+            if screen_x + fog_screen_width > -margin
+                && screen_x < screen_width() + margin
+                && screen_y + fog_screen_height > -margin
+                && screen_y < screen_height() + margin
             {
                 draw_rectangle(
                     screen_x,
@@ -1188,332 +1192,77 @@ impl Renderer {
         }
     }
 
-    fn draw_vampire_sprite(&self, x: f32, y: f32, size: f32, facing: f32) {
-        let pixel_size = size / 8.0;
+    fn draw_vampire_sprite(&self, x: f32, y: f32, size: f32, _facing: f32) {
+        let half_size = size * 0.5;
 
-        // Main body (red)
+        // Main body with cape (dark red)
         draw_rectangle(
-            x - 2.0 * pixel_size,
-            y - 3.0 * pixel_size,
-            4.0 * pixel_size,
-            6.0 * pixel_size,
-            RED,
+            x - half_size,
+            y - half_size,
+            size,
+            size,
+            Color::new(0.6, 0.0, 0.0, 1.0),
         );
 
-        // Head (pale)
+        // Head (pale center)
         draw_rectangle(
-            x - 1.5 * pixel_size,
-            y - 4.0 * pixel_size,
-            3.0 * pixel_size,
-            2.0 * pixel_size,
+            x - half_size * 0.6,
+            y - half_size,
+            size * 0.6,
+            half_size,
             Color::new(0.9, 0.8, 0.7, 1.0),
         );
 
-        // Eyes (glowing red)
-        draw_rectangle(
-            x - 1.0 * pixel_size,
-            y - 3.5 * pixel_size,
-            pixel_size * 0.5,
-            pixel_size * 0.5,
-            Color::new(1.0, 0.2, 0.2, 1.0),
-        );
-        draw_rectangle(
-            x + 0.5 * pixel_size,
-            y - 3.5 * pixel_size,
-            pixel_size * 0.5,
-            pixel_size * 0.5,
-            Color::new(1.0, 0.2, 0.2, 1.0),
-        );
-
-        // Cape (dark red)
-        if facing.cos() > 0.0 {
-            // Facing right
-            draw_rectangle(
-                x - 3.0 * pixel_size,
-                y - 2.0 * pixel_size,
-                2.0 * pixel_size,
-                4.0 * pixel_size,
-                Color::new(0.3, 0.0, 0.0, 1.0),
-            );
-        } else {
-            // Facing left
-            draw_rectangle(
-                x + 1.0 * pixel_size,
-                y - 2.0 * pixel_size,
-                2.0 * pixel_size,
-                4.0 * pixel_size,
-                Color::new(0.3, 0.0, 0.0, 1.0),
-            );
-        }
-
-        // Fangs
-        draw_rectangle(
-            x - 0.5 * pixel_size,
-            y - 2.5 * pixel_size,
-            pixel_size * 0.3,
-            pixel_size * 0.5,
-            WHITE,
-        );
-        draw_rectangle(
-            x + 0.2 * pixel_size,
-            y - 2.5 * pixel_size,
-            pixel_size * 0.3,
-            pixel_size * 0.5,
-            WHITE,
-        );
-
-        // Border for visibility
-        draw_rectangle_lines(
-            x - 2.0 * pixel_size,
-            y - 4.0 * pixel_size,
-            4.0 * pixel_size,
-            7.0 * pixel_size,
-            1.0,
-            WHITE,
-        );
+        // Simple border for visibility
+        draw_rectangle_lines(x - half_size, y - half_size, size, size, 1.0, WHITE);
     }
 
     fn draw_clan_leader_sprite(&self, x: f32, y: f32, size: f32, color: Color) {
-        let pixel_size = size / 10.0;
+        let half_size = size * 0.5;
 
-        // Body
-        draw_rectangle(
-            x - 2.5 * pixel_size,
-            y - 2.0 * pixel_size,
-            5.0 * pixel_size,
-            4.0 * pixel_size,
-            color,
-        );
+        // Main body (colored by clan)
+        draw_rectangle(x - half_size, y - half_size, size, size, color);
 
-        // Head
-        draw_rectangle(
-            x - 2.0 * pixel_size,
-            y - 4.0 * pixel_size,
-            4.0 * pixel_size,
-            2.0 * pixel_size,
-            Color::new(0.8, 0.7, 0.6, 1.0),
-        );
+        // Crown indicator (golden top)
+        draw_rectangle(x - half_size, y - half_size, size, half_size * 0.4, GOLD);
 
-        // Crown
-        draw_rectangle(
-            x - 2.5 * pixel_size,
-            y - 5.0 * pixel_size,
-            5.0 * pixel_size,
-            pixel_size,
-            GOLD,
-        );
-        draw_triangle(
-            Vec2::new(x, y - 5.5 * pixel_size),
-            Vec2::new(x - pixel_size, y - 4.5 * pixel_size),
-            Vec2::new(x + pixel_size, y - 4.5 * pixel_size),
-            GOLD,
-        );
-
-        // Eyes
-        draw_rectangle(
-            x - 1.5 * pixel_size,
-            y - 3.5 * pixel_size,
-            pixel_size * 0.5,
-            pixel_size * 0.5,
-            BLACK,
-        );
-        draw_rectangle(
-            x + pixel_size,
-            y - 3.5 * pixel_size,
-            pixel_size * 0.5,
-            pixel_size * 0.5,
-            BLACK,
-        );
-
-        // Weapon/Staff
-        draw_rectangle(
-            x + 3.0 * pixel_size,
-            y - 4.0 * pixel_size,
-            pixel_size * 0.5,
-            6.0 * pixel_size,
-            BROWN,
-        );
-        draw_circle(
-            x + 3.25 * pixel_size,
-            y - 4.5 * pixel_size,
-            pixel_size * 0.8,
-            color,
-        );
+        // Simple border for visibility
+        draw_rectangle_lines(x - half_size, y - half_size, size, size, 1.0, GOLD);
     }
 
-    fn draw_infected_sprite(&self, x: f32, y: f32, size: f32, facing: f32) {
-        let pixel_size = size / 8.0;
+    fn draw_infected_sprite(&self, x: f32, y: f32, size: f32, _facing: f32) {
+        let half_size = size * 0.5;
 
         // Twisted body (dark red)
         draw_rectangle(
-            x - 2.0 * pixel_size,
-            y - 2.0 * pixel_size,
-            4.0 * pixel_size,
-            4.0 * pixel_size,
+            x - half_size,
+            y - half_size,
+            size,
+            size,
             Color::new(0.4, 0.1, 0.1, 1.0),
         );
 
-        // Deformed head
-        draw_rectangle(
-            x - 1.5 * pixel_size,
-            y - 3.5 * pixel_size,
-            3.0 * pixel_size,
-            1.5 * pixel_size,
-            Color::new(0.5, 0.3, 0.2, 1.0),
-        );
-
-        // Glowing hostile eyes
-        draw_rectangle(
-            x - pixel_size,
-            y - 3.0 * pixel_size,
-            pixel_size * 0.7,
-            pixel_size * 0.7,
-            Color::new(1.0, 0.0, 0.0, 1.0),
-        );
-        draw_rectangle(
-            x + 0.3 * pixel_size,
-            y - 3.0 * pixel_size,
-            pixel_size * 0.7,
-            pixel_size * 0.7,
-            Color::new(1.0, 0.0, 0.0, 1.0),
-        );
-
-        // Claws
-        if facing.cos() > 0.0 {
-            // Facing right
-            (0..3).for_each(|i| {
-                draw_rectangle(
-                    x + 2.0 * pixel_size + i as f32 * pixel_size * 0.3,
-                    y - pixel_size + i as f32 * pixel_size * 0.2,
-                    pixel_size * 0.2,
-                    pixel_size,
-                    GRAY,
-                );
-            });
-        } else {
-            // Facing left
-            (0..3).for_each(|i| {
-                draw_rectangle(
-                    x - 2.5 * pixel_size - i as f32 * pixel_size * 0.3,
-                    y - pixel_size + i as f32 * pixel_size * 0.2,
-                    pixel_size * 0.2,
-                    pixel_size,
-                    GRAY,
-                );
-            });
-        }
-
-        // Danger X mark
-        draw_line(
-            x - pixel_size,
-            y - pixel_size,
-            x + pixel_size,
-            y + pixel_size,
-            2.0,
-            RED,
-        );
-        draw_line(
-            x + pixel_size,
-            y - pixel_size,
-            x - pixel_size,
-            y + pixel_size,
-            2.0,
-            RED,
-        );
+        // Simple border for visibility
+        draw_rectangle_lines(x - half_size, y - half_size, size, size, 1.0, RED);
     }
 
     fn draw_animal_sprite(&self, x: f32, y: f32, size: f32) {
-        let pixel_size = size / 6.0;
+        let half_size = size * 0.5;
 
-        // Body (brown circle with texture)
-        draw_circle(x, y, size / 2.0, BROWN);
-        draw_circle(x, y, size / 2.5, Color::new(0.4, 0.2, 0.1, 1.0));
+        // Simple brown body
+        draw_rectangle(x - half_size, y - half_size, size, size, BROWN);
 
-        // Ears
-        draw_triangle(
-            Vec2::new(x - pixel_size, y - pixel_size * 1.5),
-            Vec2::new(x - pixel_size * 1.5, y - pixel_size * 2.5),
-            Vec2::new(x - pixel_size * 0.5, y - pixel_size * 2.0),
-            BROWN,
-        );
-        draw_triangle(
-            Vec2::new(x + pixel_size, y - pixel_size * 1.5),
-            Vec2::new(x + pixel_size * 1.5, y - pixel_size * 2.5),
-            Vec2::new(x + pixel_size * 0.5, y - pixel_size * 2.0),
-            BROWN,
-        );
-
-        // Eyes
-        draw_circle(
-            x - pixel_size * 0.5,
-            y - pixel_size * 0.3,
-            pixel_size * 0.3,
-            BLACK,
-        );
-        draw_circle(
-            x + pixel_size * 0.5,
-            y - pixel_size * 0.3,
-            pixel_size * 0.3,
-            BLACK,
-        );
-
-        // Nose
-        draw_circle(x, y + pixel_size * 0.2, pixel_size * 0.2, BLACK);
-
-        // Tail
-        draw_circle(
-            x + pixel_size * 1.8,
-            y + pixel_size * 0.5,
-            pixel_size * 0.4,
-            BROWN,
-        );
+        // Simple border for visibility
+        draw_rectangle_lines(x - half_size, y - half_size, size, size, 1.0, BLACK);
     }
 
     fn draw_clan_member_sprite(&self, x: f32, y: f32, size: f32, color: Color) {
-        let pixel_size = size / 8.0;
+        let half_size = size * 0.5;
 
-        // Body
-        draw_rectangle(
-            x - 2.0 * pixel_size,
-            y - 2.0 * pixel_size,
-            4.0 * pixel_size,
-            4.0 * pixel_size,
-            color,
-        );
+        // Main body (colored by clan)
+        draw_rectangle(x - half_size, y - half_size, size, size, color);
 
-        // Head
-        draw_rectangle(
-            x - 1.5 * pixel_size,
-            y - 3.5 * pixel_size,
-            3.0 * pixel_size,
-            1.5 * pixel_size,
-            Color::new(0.8, 0.7, 0.6, 1.0),
-        );
-
-        // Eyes
-        draw_rectangle(
-            x - pixel_size,
-            y - 3.0 * pixel_size,
-            pixel_size * 0.4,
-            pixel_size * 0.4,
-            BLACK,
-        );
-        draw_rectangle(
-            x + 0.6 * pixel_size,
-            y - 3.0 * pixel_size,
-            pixel_size * 0.4,
-            pixel_size * 0.4,
-            BLACK,
-        );
-
-        // Simple weapon
-        draw_rectangle(
-            x + 2.5 * pixel_size,
-            y - 3.0 * pixel_size,
-            pixel_size * 0.3,
-            4.0 * pixel_size,
-            GRAY,
-        );
+        // Simple border for visibility
     }
 
     fn draw_quick_start_guide(&self) {
