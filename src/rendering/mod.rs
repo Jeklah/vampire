@@ -994,20 +994,49 @@ impl Renderer {
             );
         }
 
-        // Show player position relative to horizon
+        // Show player position relative to horizon and virtual walking distance
         if let Some(player) = game_state
             .entities
             .iter()
             .find(|e| matches!(e.entity_type, EntityType::Player))
         {
             let distance_to_horizon = player.position.y - HORIZON_LINE;
-            self.draw_text_with_font(
-                &format!("Distance to horizon: {:.0}", distance_to_horizon),
-                10.0,
-                50.0,
-                14.0,
-                Color::new(0.8, 0.8, 1.0, 0.8),
-            );
+
+            if game_state.virtual_horizon_distance > 0.0 {
+                // Show virtual walking distance when horizon walking is active
+                self.draw_text_with_font(
+                    &format!(
+                        "Virtual distance walked: {:.1} | World scroll: {:.1}",
+                        game_state.virtual_horizon_distance, game_state.world_scroll_offset
+                    ),
+                    10.0,
+                    50.0,
+                    16.0,
+                    Color::new(1.0, 1.0, 0.3, 1.0), // Bright yellow for virtual walking
+                );
+
+                self.draw_text_with_font(
+                    &format!(
+                        "Player Y: {:.0} | Horizon: {:.0} | Attempting horizon move: {}",
+                        player.position.y,
+                        HORIZON_LINE,
+                        game_state.player_attempting_horizon_movement
+                    ),
+                    10.0,
+                    70.0,
+                    14.0,
+                    Color::new(0.8, 1.0, 0.8, 0.9),
+                );
+            } else {
+                // Normal distance display
+                self.draw_text_with_font(
+                    &format!("Distance to horizon: {:.0}", distance_to_horizon),
+                    10.0,
+                    50.0,
+                    14.0,
+                    Color::new(0.8, 0.8, 1.0, 0.8),
+                );
+            }
         }
     }
 

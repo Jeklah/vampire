@@ -44,6 +44,11 @@ pub struct GameState {
     pub accumulated_horizon_movement: f32,
     pub fog_cache_invalidated: bool,
 
+    // Virtual horizon walking system
+    pub virtual_horizon_distance: f32,
+    pub world_scroll_offset: f32,
+    pub player_attempting_horizon_movement: bool,
+
     // Ground generation tracking for all directions
     pub last_player_x: f32,
     pub movement_threshold: f32,
@@ -92,6 +97,9 @@ impl GameState {
             ground_update_timer: 0.0,
             accumulated_horizon_movement: 0.0,
             fog_cache_invalidated: false,
+            virtual_horizon_distance: 0.0,
+            world_scroll_offset: 0.0,
+            player_attempting_horizon_movement: false,
             last_player_x: 400.0,     // Player spawn X position
             movement_threshold: 32.0, // Generate ground when player moves 32 pixels
             debug_messages: Vec::new(),
@@ -334,9 +342,12 @@ impl GameState {
         );
     }
 
-    /// Update camera to follow player
+    /// Update camera to follow player with horizon walking support
     fn update_camera(&mut self) {
         if let Some(player) = EntityFinder::by_id(&self.entities, self.player_id) {
+            self.camera_x = player.position.x;
+
+            // Handle virtual horizon walking - camera follows player normally
             self.camera_x = player.position.x;
             self.camera_y = player.position.y;
         }
@@ -541,27 +552,51 @@ impl GameState {
             let current_y = player.position.y;
             let y_movement = self.last_player_y - current_y;
 
-            // Accumulate movement toward horizon
-            if current_y > HORIZON_LINE && y_movement > 0.0 {
+            // Detect when player is trying to move beyond horizon
+            let player_at_horizon = (current_y - HORIZON_LINE).abs() < 1.0;
+            let trying_to_move_up = y_movement > 0.0;
+
+            self.player_attempting_horizon_movement = player_at_horizon && trying_to_move_up;
+
+            // When player attempts to move beyond horizon, trigger world scrolling
+            if self.player_attempting_horizon_movement {
+                self.virtual_horizon_distance += y_movement;
+                self.world_scroll_offset += y_movement;
                 self.accumulated_horizon_movement += y_movement;
-            } else {
-                // Reset accumulation if not moving toward horizon
-                self.accumulated_horizon_movement = 0.0;
+
+                self.add_debug_message(format!(
+                    "Horizon walking: virtual distance {:.1}, scroll {:.1}",
+                    self.virtual_horizon_distance, self.world_scroll_offset
+                ));
+            } else if current_y > HORIZON_LINE + 10.0 {
+                // Reset when player moves significantly away from horizon
+                if self.virtual_horizon_distance > 0.0 {
+                    self.add_debug_message(format!(
+                        "Reset virtual distance: {:.1} -> 0",
+                        self.virtual_horizon_distance
+                    ));
+                    self.virtual_horizon_distance = 0.0;
+                    self.world_scroll_offset = 0.0;
+                    self.accumulated_horizon_movement = 0.0;
+                }
             }
 
-            // Check if accumulated movement exceeds threshold
+            // Update horizon movement flag
             let was_moving_toward_horizon = self.is_moving_toward_horizon;
-            self.is_moving_toward_horizon =
-                self.accumulated_horizon_movement > HORIZON_MOVEMENT_THRESHOLD;
+            self.is_moving_toward_horizon = self.player_attempting_horizon_movement
+                || self.accumulated_horizon_movement > HORIZON_MOVEMENT_THRESHOLD;
 
             // Log when horizon movement starts/stops for debugging
             if self.is_moving_toward_horizon && !was_moving_toward_horizon {
                 self.add_debug_message(format!(
-                    "Started moving toward horizon (accumulated: {:.1})",
-                    self.accumulated_horizon_movement
+                    "Started horizon walking (virtual: {:.1})",
+                    self.virtual_horizon_distance
                 ));
             } else if !self.is_moving_toward_horizon && was_moving_toward_horizon {
-                self.add_debug_message("Stopped moving toward horizon".to_string());
+                self.add_debug_message(format!(
+                    "Stopped horizon walking (virtual: {:.1})",
+                    self.virtual_horizon_distance
+                ));
             }
 
             self.last_player_y = current_y;
@@ -583,7 +618,12 @@ impl GameState {
                     .iter()
                     .find(|e| matches!(e.entity_type, EntityType::Player))
                 {
-                    let movement_distance = GROUND_SHIFT_DISTANCE * 0.08; // More noticeable shift
+                    // Calculate movement distance based on world scroll
+                    let movement_distance = if self.world_scroll_offset > 0.0 {
+                        GROUND_SHIFT_DISTANCE * 0.15 // Scroll world content downward
+                    } else {
+                        GROUND_SHIFT_DISTANCE * 0.08 // Normal horizon effect
+                    };
 
                     WorldSystem::shift_ground_for_horizon_movement(
                         &mut self.ground_tiles,
@@ -593,8 +633,19 @@ impl GameState {
                         &mut self.debug_messages,
                     );
 
-                    // Signal that fog cache needs update due to ground tile changes
+                    // Shift all entities downward to simulate world scrolling
+                    if self.world_scroll_offset > 0.0 {
+                        self.shift_world_entities(movement_distance);
+                    }
+
+                    // Generate new content based on virtual distance
+                    self.generate_horizon_content();
+
+                    // Signal that fog cache needs update due to world changes
                     self.fog_cache_invalidated = true;
+
+                    // Reset scroll offset after applying
+                    self.world_scroll_offset = 0.0;
                 }
 
                 self.ground_update_timer = 0.0;
@@ -640,6 +691,110 @@ impl GameState {
             self.ground_update_timer -= 1.0 / 60.0; // Assume 60 FPS
             if self.ground_update_timer < 0.0 {
                 self.ground_update_timer = 2.0; // Generate every 2 seconds as fallback
+            }
+        }
+
+        // Additional directional spawning for movement responsiveness
+        self.spawn_directional_ground_for_player();
+    }
+
+    /// Additional directional spawning for movement responsiveness
+    fn spawn_directional_ground_for_player(&mut self) {
+        if let Some(_player) = self
+            .entities
+            .iter()
+            .find(|e| matches!(e.entity_type, EntityType::Player))
+        {
+            // Skip directional ground spawning for now - method is private
+        }
+    }
+
+    /// Shift all world entities downward to simulate world scrolling during horizon walking
+    fn shift_world_entities(&mut self, shift_distance: f32) {
+        let player_id = self.player_id;
+
+        for entity in &mut self.entities {
+            // Don't shift the player - they stay in place
+            if entity.id != player_id {
+                entity.position.y += shift_distance;
+            }
+        }
+
+        self.add_debug_message(format!(
+            "Shifted {} entities by {:.1} units",
+            self.entities.len() - 1,
+            shift_distance
+        ));
+    }
+
+    /// Generate new content (enemies, shelters, etc.) during horizon walking
+    fn generate_horizon_content(&mut self) {
+        use crate::systems::world::WorldSystem;
+
+        // Only generate content when virtual distance reaches certain thresholds
+        let generation_threshold = 100.0; // Generate content every 100 units of virtual walking
+        let content_tier = (self.virtual_horizon_distance / generation_threshold) as u32;
+
+        // Generate content based on how far the player has "walked"
+        if content_tier > 0
+            && ((content_tier as f32) * 100.0 - self.virtual_horizon_distance).abs() < 10.0
+        {
+            // Generate new enemies
+            if rand::gen_range(0.0, 1.0) < 0.7 {
+                let spawn_x = self.camera_x + rand::gen_range(-400.0, 400.0);
+                let spawn_y = crate::systems::world::HORIZON_LINE + rand::gen_range(0.0, 200.0);
+
+                WorldSystem::spawn_hostile_infected(
+                    &mut self.entities,
+                    &mut self.next_entity_id,
+                    spawn_x,
+                    spawn_y,
+                );
+
+                self.add_debug_message("Generated new hostile infected".to_string());
+            }
+
+            // Generate new animals
+            if rand::gen_range(0.0, 1.0) < 0.5 {
+                let spawn_x = self.camera_x + rand::gen_range(-300.0, 300.0);
+                let spawn_y = crate::systems::world::HORIZON_LINE + rand::gen_range(0.0, 150.0);
+
+                WorldSystem::spawn_animal(
+                    &mut self.entities,
+                    &mut self.next_entity_id,
+                    spawn_x,
+                    spawn_y,
+                );
+
+                self.add_debug_message("Generated new animal".to_string());
+            }
+
+            // Generate new shelters occasionally
+            if rand::gen_range(0.0, 1.0) < 0.3 {
+                use crate::components::{ShelterCondition, ShelterType};
+                use crate::systems::ShelterSystem;
+
+                let spawn_x = self.camera_x + rand::gen_range(-200.0, 200.0);
+                let spawn_y = crate::systems::world::HORIZON_LINE + rand::gen_range(10.0, 100.0);
+
+                let shelter_types = [ShelterType::Cave, ShelterType::Ruins];
+                let shelter_type = shelter_types[rand::gen_range(0, shelter_types.len())].clone();
+
+                let _shelter_id = ShelterSystem::spawn_shelter(
+                    &mut self.entities,
+                    &mut self.next_entity_id,
+                    shelter_type,
+                    spawn_x,
+                    spawn_y,
+                    Some(ShelterCondition::Good),
+                    Some("Generated Shelter".to_string()),
+                );
+                if _shelter_id > 0 {
+                    self.add_debug_message(format!(
+                        "Generated new shelter at ({:.0}, {:.0})",
+                        spawn_x, spawn_y
+                    ));
+                }
             }
         }
     }

@@ -91,10 +91,19 @@ impl PlayerSystem {
             // Facing direction calculation removed as field no longer exists
             // Direction is now calculated from velocity when needed for rendering
 
+            // Handle horizon walking - keep player at horizon line when trying to move beyond it
+            let horizon_line = crate::systems::world::HORIZON_LINE;
+
+            // If player tries to move above horizon, keep them at horizon and trigger world scrolling
+            if player.position.y < horizon_line {
+                player.position.y = horizon_line; // Keep player at horizon line
+                                                  // The world scrolling will be handled in the game state update
+            }
+
             // Allow movement beyond original world bounds horizontally
-            // Restrict Y movement to horizon line and below
+            // Clamp Y movement to stay at or below horizon line
             player.position.y = player.position.y.clamp(
-                crate::systems::world::GROUND_LEVEL, // Can't go above horizon line
+                horizon_line,                                   // Can't go above horizon line
                 crate::systems::world::GAME_WORLD_HEIGHT * 2.0, // Expand downward limit
             );
             // No X constraints - can move infinitely left and right

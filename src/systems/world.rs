@@ -401,44 +401,43 @@ impl WorldSystem {
     pub fn shift_ground_for_horizon_movement(
         ground_tiles: &mut Vec<GroundTile>,
         player_x: f32,
-        player_y: f32,
+        camera_y: f32,
         movement_distance: f32,
         debug_messages: &mut Vec<String>,
     ) {
         let initial_tile_count = ground_tiles.len();
 
-        // Calculate screen-based bounds for better tile management
-        let screen_width = 1280.0; // Approximate screen width
-        let screen_height = 720.0; // Approximate screen height
-        let _tile_size = 64.0;
+        // Enhanced screen-based bounds for infinite walking
+        let screen_width = 1280.0;
+        let screen_height = 720.0;
 
-        // More conservative cleanup bounds based on visible area
-        let cleanup_x_range = screen_width * 1.5; // Keep tiles 1.5 screen widths around player
-        let cleanup_y_range = screen_height * 2.0; // Keep tiles 2 screen heights around player
+        // Expand generation area for seamless infinite walking
+        let generation_x_range = screen_width * 2.0; // Wider coverage
+        let generation_y_range = screen_height * 1.5; // Taller coverage
 
         // Only shift tiles if movement is significant enough
         if movement_distance.abs() > 0.5 {
-            // Shift existing ground tiles away from player
+            // Shift existing ground tiles downward to simulate movement
             for tile in ground_tiles.iter_mut() {
                 tile.y += movement_distance;
             }
         }
 
-        // Generate new ground tiles with proper grid alignment
-        let tiles_to_generate_x = (cleanup_x_range as f32 / TILE_SIZE).ceil() as i32;
-        let start_x = Self::snap_to_grid(player_x - cleanup_x_range as f32 / 2.0);
+        // Generate new ground tiles ahead of the player
+        let tiles_to_generate_x = (generation_x_range as f32 / TILE_SIZE).ceil() as i32;
+        let start_x = Self::snap_to_grid(player_x - generation_x_range / 2.0);
 
         let mut tiles_added = 0;
 
-        // Add new tiles at the horizon area where player is moving
+        // Generate tiles at and below the horizon line
         for i in 0..tiles_to_generate_x {
             let x = start_x + (i as f32 * TILE_SIZE);
 
-            // Add tiles at the horizon line and slightly below (more rows for better coverage)
-            for row in 0..4 {
+            // Generate multiple rows starting from horizon
+            for row in 0..8 {
                 let y = Self::snap_to_grid(HORIZON_LINE) + (row as f32 * TILE_SIZE);
 
-                // Check if we already have a tile at this position with better tolerance
+                // Check if we already have a tile at this position
                 let tile_exists = ground_tiles.iter().any(|tile| {
                     (tile.x - x).abs() < TILE_SIZE * 0.1 && (tile.y - y).abs() < TILE_SIZE * 0.1
                 });
@@ -451,16 +450,23 @@ impl WorldSystem {
             }
         }
 
-        // Cleanup tiles that are extremely far from player OR above horizon line
-        // This preserves ground tiles behind the player for persistent world feeling
-        // Clean up tiles using screen-relative bounds instead of fixed distance
+        // More aggressive cleanup to prevent performance issues
+        let cleanup_x_range = generation_x_range * 1.5;
+        let cleanup_y_range = generation_y_range * 2.0;
+
         let before_cleanup = ground_tiles.len();
         ground_tiles.retain(|tile| {
             let x_in_range = (tile.x - player_x).abs() < cleanup_x_range;
-            let y_in_range = (tile.y - player_y).abs() < cleanup_y_range;
-            let not_too_far_down = tile.y < GAME_WORLD_HEIGHT + 200.0;
+            let y_relative_to_camera = tile.y - camera_y;
 
-            x_in_range && y_in_range && not_too_far_down
+            // Keep tiles that are visible or just off-screen
+            let y_in_range =
+                y_relative_to_camera > -cleanup_y_range && y_relative_to_camera < cleanup_y_range;
+
+            // Don't keep tiles too far above the horizon
+            let not_too_far_up = tile.y >= HORIZON_LINE - TILE_SIZE;
+
+            x_in_range && y_in_range && not_too_far_up
         });
         let after_cleanup = ground_tiles.len();
         let tiles_removed = before_cleanup - after_cleanup;
@@ -475,20 +481,20 @@ impl WorldSystem {
         // Add debug information for significant changes
         if tiles_added > 0 || tiles_removed > 0 {
             debug_messages.push(format!(
-                "Ground tiles: {} → {} (added: {}, removed: {}) at player({:.0}, {:.0})",
+                "Horizon tiles: {} → {} (+{}, -{}) at player({:.0}, cam_y:{:.0})",
                 initial_tile_count,
                 ground_tiles.len(),
                 tiles_added,
                 tiles_removed,
                 player_x,
-                player_y
+                camera_y
             ));
         }
 
         // Debug tile generation activity
         if movement_distance.abs() > 0.5 {
             debug_messages.push(format!(
-                "Ground shift: {:.1} units, horizon detection active",
+                "Horizon shift: {:.1} units, infinite walking active",
                 movement_distance
             ));
         }
@@ -753,11 +759,19 @@ impl WorldSystem {
         let check_radius_x = 640.0; // Larger check area for better coverage in all directions
         let check_radius_y = 480.0; // Larger check area for better coverage in all directions
 
-        // Define the area around the player to check for ground - restrict to horizon and below
+        // Define the area around the player to check for ground
         let min_check_x = player_x - check_radius_x; // Can go negative (left of world)
         let max_check_x = player_x + check_radius_x; // Can go beyond world width
-        let min_check_y = (player_y - check_radius_y).max(GROUND_LEVEL); // Never above horizon line
-        let max_check_y = player_y + check_radius_y; // Can go beyond world height
+
+        // For horizon walking, always ensure ground exists at horizon level and below
+        let effective_player_y = if player_y < GROUND_LEVEL {
+            GROUND_LEVEL // Treat horizon as player position for ground generation
+        } else {
+            player_y
+        };
+
+        let min_check_y = (effective_player_y - check_radius_y).max(GROUND_LEVEL);
+        let max_check_y = effective_player_y + check_radius_y;
 
         // Count existing ground tiles in the area
         let existing_tiles = ground_tiles
@@ -822,7 +836,7 @@ impl WorldSystem {
             if tiles_added > 0 {
                 debug_messages.push(format!(
                     "AUTO-SPAWN: {} ground tiles near player at ({:.0}, {:.0}) - coverage: {}/{} tiles",
-                    tiles_added, player_x, player_y, existing_tiles + tiles_added, expected_tiles
+                    tiles_added, player_x, effective_player_y, existing_tiles + tiles_added, expected_tiles
                 ));
             }
         }
