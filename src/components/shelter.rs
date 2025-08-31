@@ -266,7 +266,7 @@ impl Shelter {
     }
 
     /// Update shelter (for degradation, repairs, etc.)
-    pub fn update(&mut self, delta_time: f32, current_time: f32) {
+    pub fn update(&mut self, _delta_time: f32, current_time: f32) {
         // Shelters might degrade over time or improve based on usage patterns
         // This is a placeholder for future shelter maintenance mechanics
 
