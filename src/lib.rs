@@ -22,8 +22,9 @@ pub use game_state::GameState;
 pub use input::InputHandler;
 pub use rendering::Renderer;
 pub use systems::{
-    AISystem, BloodStatus, BloodSystem, ObjectiveProgress, ObjectivesSystem, PlayerStatus,
-    PlayerSystem, ShelterInfo, ShelterSystem, TimeSystem, WorldSystem,
+    AISystem, BloodStatus, BloodSystem, EntityPool, GlobalEntityPool, ObjectiveProgress,
+    ObjectivesSystem, PlayerStatus, PlayerSystem, ShelterInfo, ShelterSystem, SpatialGrid,
+    SpatialQuery, TimeSystem, WorldSystem,
 };
 
 // Common imports for external use
