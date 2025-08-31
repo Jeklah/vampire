@@ -56,10 +56,13 @@ async fn main() {
     let mut last_time = get_time();
     let mut frame_count = 0;
     let mut fps_timer = 0.0;
+    let mut cleanup_frame_counter = 0;
+    let mut adaptive_cleanup_interval = 180; // Default: 3 seconds at 60fps
 
     // Main game loop
     loop {
         let frame_start = get_time();
+        cleanup_frame_counter += 1;
 
         // Calculate delta time
         let current_time = get_time();
@@ -69,18 +72,39 @@ async fn main() {
         // Cap delta time to prevent large jumps (allow for frame drops/pauses)
         let delta_time = delta_time.min(0.1); // Max 100ms to handle pauses gracefully
 
-        // Update FPS counter and delta time monitoring
+        // Adaptive cleanup based on macroquad's FPS for optimal performance
+        let current_fps = get_fps();
+
+        // Adjust cleanup frequency based on FPS
+        adaptive_cleanup_interval = if current_fps < 30 {
+            90 // Cleanup every 1.5 seconds if FPS is low
+        } else if current_fps < 45 {
+            120 // Cleanup every 2 seconds if FPS is moderate
+        } else {
+            180 // Cleanup every 3 seconds if FPS is good
+        };
+
+        // Use macroquad's frame timing for efficient cleanup scheduling
+        if cleanup_frame_counter % adaptive_cleanup_interval == 0 {
+            game_state.force_cleanup();
+            game_state.add_debug_message(format!(
+                "Adaptive cleanup (interval: {}f @ {:.0}fps)",
+                adaptive_cleanup_interval, current_fps
+            ));
+        }
+
+        // Update FPS counter using macroquad's built-in FPS tracking
         frame_count += 1;
         fps_timer += delta_time;
         if fps_timer >= 1.0 {
-            let fps = frame_count as f32 / fps_timer;
+            let fps = get_fps() as f32; // Use macroquad's FPS counter
             let perf_mode = if renderer.performance_mode() {
                 "PERF"
             } else {
                 "NORM"
             };
 
-            // Get player speed for monitoring
+            // Get player speed for monitoring and entity count
             let player_speed = game_state
                 .entities
                 .iter()
@@ -94,10 +118,35 @@ async fn main() {
                 .map(|v| (v.x.powi(2) + v.y.powi(2)).sqrt())
                 .unwrap_or(0.0);
 
+            let entity_count = game_state.entities.len();
+            let max_entities = game_state.max_entities;
+
             game_state.add_debug_message(format!(
-                "FPS: {:.1} | DT: {:.4}s | {} | Speed: {:.0}",
-                fps, delta_time, perf_mode, player_speed
+                "FPS: {:.0} | DT: {:.4}s | {} | Speed: {:.0} | Entities: {}/{} | Cleanup: {}f",
+                fps,
+                delta_time,
+                perf_mode,
+                player_speed,
+                entity_count,
+                max_entities,
+                adaptive_cleanup_interval
             ));
+
+            // Auto-enable performance mode if FPS drops below 30
+            if fps < 30.0 && !renderer.performance_mode() {
+                renderer.set_performance_mode(true);
+                game_state.set_performance_mode(true);
+                game_state
+                    .add_debug_message("Auto-enabled performance mode due to low FPS".to_string());
+            }
+
+            // Force cleanup if FPS is critically low using macroquad timing
+            if fps < 20.0 {
+                game_state.force_cleanup();
+                cleanup_frame_counter = 0; // Reset counter after emergency cleanup
+                game_state.add_debug_message("Emergency cleanup triggered".to_string());
+            }
+
             frame_count = 0;
             fps_timer = 0.0;
         }
@@ -121,11 +170,18 @@ async fn main() {
         if is_key_pressed(KeyCode::P) {
             let current_mode = renderer.performance_mode();
             renderer.set_performance_mode(!current_mode);
+            game_state.set_performance_mode(!current_mode);
             if !current_mode {
                 game_state.add_debug_message("Performance mode enabled".to_string());
             } else {
                 game_state.add_debug_message("Performance mode disabled".to_string());
             }
+        }
+
+        // Handle manual cleanup with C key
+        if is_key_pressed(KeyCode::C) {
+            game_state.force_cleanup();
+            game_state.add_debug_message("Manual cleanup executed".to_string());
         }
 
         // Handle window close
