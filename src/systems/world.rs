@@ -65,11 +65,9 @@ impl WorldSystem {
         // Spawn clan leaders
         Self::spawn_all_clan_leaders(entities, next_entity_id);
 
-        // Spawn hostile infected creatures
-        Self::spawn_hostile_infected_group(entities, next_entity_id, 8);
-
-        // Spawn animals (blood sources)
-        Self::spawn_animal_group(entities, next_entity_id, 12);
+        // Spawn fewer initial entities to prevent early FPS drops
+        Self::spawn_hostile_infected_group(entities, next_entity_id, 6); // Reduced from 8
+        Self::spawn_animal_group(entities, next_entity_id, 8); // Reduced from 12
 
         // Spawn shelters throughout the world
         Self::spawn_world_shelters(entities, next_entity_id, debug_messages);
@@ -257,7 +255,14 @@ impl WorldSystem {
         next_entity_id: &mut u32,
         count: usize,
     ) {
+        let max_entities = 100; // Entity limit to prevent performance issues
+
         (0..count).for_each(|_| {
+            // Check entity limit before spawning
+            if entities.len() >= max_entities {
+                return;
+            }
+
             let (min_x, max_x, min_y, max_y) = Self::get_spawn_bounds(&EntityType::HostileInfected);
             let x = rand::gen_range(min_x, max_x);
             let y = rand::gen_range(min_y, max_y);
@@ -297,12 +302,20 @@ impl WorldSystem {
     }
 
     /// Spawn a group of animals
+    /// Spawn a group of animals for blood sources
     pub fn spawn_animal_group(
         entities: &mut Vec<GameEntity>,
         next_entity_id: &mut u32,
         count: usize,
     ) {
+        let max_entities = 100; // Entity limit to prevent performance issues
+
         (0..count).for_each(|_| {
+            // Check entity limit before spawning
+            if entities.len() >= max_entities {
+                return;
+            }
+
             let (min_x, max_x, min_y, max_y) = Self::get_spawn_bounds(&EntityType::Animal);
             let x = rand::gen_range(min_x, max_x);
             let y = rand::gen_range(min_y, max_y);
