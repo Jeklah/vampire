@@ -67,6 +67,13 @@ pub struct GameState {
     pub show_legend: bool,
     pub show_quick_start: bool,
     pub show_debug_messages: bool,
+
+    // Performance optimization fields
+    pub ai_system: crate::systems::ai::AISystem,
+    pub entity_pool: crate::systems::entity_pool::EntityPool,
+    pub spatial_grid: crate::systems::spatial_grid::SpatialGrid,
+    pub max_entities: usize,
+    pub entity_cleanup_distance: f32,
 }
 
 impl GameState {
@@ -111,6 +118,12 @@ impl GameState {
             debug_messages: Vec::with_capacity(50),
             debug_message_index: 0,
             max_debug_messages: 50,
+            // Performance optimization fields
+            ai_system: crate::systems::ai::AISystem::new(),
+            entity_pool: crate::systems::entity_pool::EntityPool::with_defaults(),
+            spatial_grid: crate::systems::spatial_grid::SpatialGrid::new(100.0),
+            max_entities: 100,
+            entity_cleanup_distance: 800.0,
         };
 
         // Initialize the world using the world system
@@ -128,6 +141,7 @@ impl GameState {
     }
 
     /// Main update loop that coordinates all systems
+    /// Main update function called every frame
     pub fn update(&mut self, input_handler: &InputHandler, delta_time: f32) {
         // Handle UI input first
         self.handle_ui_input(input_handler);
@@ -140,7 +154,8 @@ impl GameState {
         // Update game time
         self.game_time += delta_time;
 
-        // Entity debugging removed - now handled by in-game debug log
+        // Note: Cleanup is now handled by main loop using macroquad's frame timing
+        // This improves performance by aligning with vsync and frame presentation
 
         // System updates in order of dependency
         self.update_time_system(delta_time);
@@ -155,6 +170,205 @@ impl GameState {
         self.ensure_ground_near_player();
         self.update_camera();
         self.update_phase_progression();
+
+        // Debug information every 5 seconds using macroquad timing
+        if (self.game_time * 0.2).floor() != ((self.game_time - delta_time) * 0.2).floor() {
+            self.add_performance_debug_info();
+        }
+    }
+
+    /// Efficient batch cleanup using macroquad's vector operations for optimal performance
+    pub fn batch_cleanup_with_macroquad(&mut self) {
+        use macroquad::prelude::vec2;
+
+        let player_pos = self.get_cached_player_data().map(|(pos, _)| pos);
+        if player_pos.is_none() {
+            return;
+        }
+
+        let player_position = player_pos.unwrap();
+        let player_vec = vec2(player_position.x, player_position.y);
+        let cleanup_distance_sq = self.entity_cleanup_distance * self.entity_cleanup_distance;
+
+        let _initial_count = self.entities.len();
+        let mut removed_count = 0;
+
+        // Use macroquad's efficient vector operations for batch distance checking
+        let mut entities_to_keep = Vec::with_capacity(self.entities.len());
+
+        for entity in self.entities.drain(..) {
+            let should_keep = if entity.id == self.player_id {
+                true // Never remove player
+            } else {
+                let entity_vec = vec2(entity.position.x, entity.position.y);
+                let distance_sq = player_vec.distance_squared(entity_vec);
+                let is_alive = !matches!(entity.ai_state, AIState::Dead)
+                    && !entity.health.as_ref().map_or(false, |h| h.current <= 0.0);
+
+                distance_sq < cleanup_distance_sq && is_alive
+            };
+
+            if should_keep {
+                entities_to_keep.push(entity);
+            } else {
+                // Return to pool for reuse
+                if entity.id != self.player_id {
+                    self.entity_pool.release(entity);
+                    removed_count += 1;
+                }
+            }
+        }
+
+        self.entities = entities_to_keep;
+
+        if removed_count > 0 {
+            self.add_debug_message(format!(
+                "Batch cleanup: removed {} entities using macroquad vectors",
+                removed_count
+            ));
+        }
+    }
+
+    /// Clean up entities that are too far from the player using macroquad vector operations
+    fn cleanup_distant_entities(&mut self) {
+        use macroquad::prelude::vec2;
+
+        let player_pos = self.get_cached_player_data().map(|(pos, _)| pos);
+
+        if let Some(player_position) = player_pos {
+            let initial_count = self.entities.len();
+            let player_vec = vec2(player_position.x, player_position.y);
+            let cleanup_distance_sq = self.entity_cleanup_distance * self.entity_cleanup_distance;
+
+            // Use batch processing with Vec2 for efficient distance calculations
+            self.entities.retain(|entity| {
+                if entity.id == self.player_id {
+                    return true; // Never remove player
+                }
+
+                let entity_vec = vec2(entity.position.x, entity.position.y);
+                let distance_sq = player_vec.distance_squared(entity_vec);
+
+                distance_sq < cleanup_distance_sq
+            });
+
+            let removed_count = initial_count - self.entities.len();
+            if removed_count > 0 {
+                self.add_debug_message(format!("Cleaned up {} distant entities", removed_count));
+            }
+        }
+    }
+
+    /// Clean up dead entities and return them to the pool using efficient batch processing
+    fn cleanup_dead_entities(&mut self) {
+        let initial_count = self.entities.len();
+        let mut dead_entities = Vec::new();
+
+        // Collect dead entities first to avoid borrowing issues
+        let mut i = 0;
+        while i < self.entities.len() {
+            let entity = &self.entities[i];
+
+            let is_dead = matches!(entity.ai_state, AIState::Dead)
+                || entity.health.as_ref().map_or(false, |h| h.current <= 0.0);
+
+            if is_dead && entity.id != self.player_id {
+                dead_entities.push(self.entities.remove(i));
+            } else {
+                i += 1;
+            }
+        }
+
+        // Return dead entities to pool for reuse
+        for dead_entity in dead_entities {
+            self.entity_pool.release(dead_entity);
+        }
+
+        let removed_count = initial_count - self.entities.len();
+        if removed_count > 0 {
+            self.add_debug_message(format!("Cleaned up {} dead entities", removed_count));
+        }
+    }
+
+    /// Add performance debug information using macroquad timing
+    fn add_performance_debug_info(&mut self) {
+        use macroquad::prelude::get_fps;
+
+        let ai_stats = self.ai_system.get_ai_statistics();
+        let current_fps = get_fps();
+
+        self.add_debug_message(format!(
+            "FPS: {} | Entities: {}/{} | Pool: {} | AI Cache: {} | Grid: {} cells",
+            current_fps,
+            self.entities.len(),
+            self.max_entities,
+            self.entity_pool.current_size(),
+            ai_stats.cached_entities,
+            ai_stats.spatial_grid_cells
+        ));
+
+        if ai_stats.performance_mode {
+            self.add_debug_message("Performance mode: ENABLED".to_string());
+        }
+
+        // Memory usage info
+        let memory_mb = ai_stats.memory_usage as f32 / 1024.0 / 1024.0;
+        self.add_debug_message(format!(
+            "Memory: {:.2} MB | AI Range: {:.0}",
+            memory_mb, ai_stats.ai_range
+        ));
+    }
+
+    /// Toggle performance mode for all systems
+    pub fn set_performance_mode(&mut self, enabled: bool) {
+        self.ai_system.set_performance_mode(enabled);
+
+        if enabled {
+            self.max_entities = 75;
+            self.entity_cleanup_distance = 600.0;
+            self.add_debug_message("Performance mode enabled - reduced limits".to_string());
+        } else {
+            self.max_entities = 100;
+            self.entity_cleanup_distance = 800.0;
+            self.add_debug_message("Performance mode disabled - normal limits".to_string());
+        }
+    }
+
+    /// Check if we're at entity limit and should avoid spawning more
+    pub fn at_entity_limit(&self) -> bool {
+        self.entities.len() >= self.max_entities
+    }
+
+    /// Force immediate cleanup using macroquad's efficient operations
+    pub fn force_cleanup(&mut self) {
+        use macroquad::prelude::get_time;
+
+        let start_time = get_time();
+
+        // Use the more efficient batch cleanup with macroquad vectors
+        self.batch_cleanup_with_macroquad();
+
+        let cleanup_time = get_time() - start_time;
+
+        self.add_debug_message(format!(
+            "Force cleanup executed in {:.2}ms using macroquad",
+            cleanup_time * 1000.0
+        ));
+    }
+
+    /// Spawn entity using the pool system for better performance
+    pub fn spawn_pooled_entity(&mut self, entity_type: EntityType, x: f32, y: f32) -> Option<u32> {
+        if self.at_entity_limit() {
+            return None;
+        }
+
+        let entity =
+            self.entity_pool
+                .spawn_entity(entity_type, Position { x, y }, &mut self.next_entity_id);
+
+        let entity_id = entity.id;
+        self.entities.push(entity);
+        Some(entity_id)
     }
 
     /// Handle UI-related input (menus, pause, etc.)
@@ -313,7 +527,8 @@ impl GameState {
 
     /// Update AI system for all NPCs
     fn update_ai_system(&mut self, delta_time: f32) {
-        AISystem::update_all_ai(&mut self.entities, self.player_id, delta_time);
+        self.ai_system
+            .update_all_ai(&mut self.entities, self.player_id, delta_time);
     }
 
     /// Update shelter system
@@ -577,7 +792,7 @@ impl GameState {
     fn update_horizon_movement_detection(&mut self) {
         use crate::systems::world::{HORIZON_LINE, HORIZON_MOVEMENT_THRESHOLD};
 
-        if let Some((player_pos, current_y)) = self.get_cached_player_data() {
+        if let Some((_player_pos, current_y)) = self.get_cached_player_data() {
             let y_movement = self.last_player_y - current_y;
 
             // Detect when player is trying to move beyond horizon
