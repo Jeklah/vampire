@@ -11,6 +11,7 @@ pub mod objectives;
 pub mod player;
 pub mod shelter;
 pub mod spatial_grid;
+pub mod spawning;
 pub mod time;
 pub mod world;
 
@@ -22,6 +23,7 @@ pub use objectives::ObjectivesSystem;
 pub use player::PlayerSystem;
 pub use shelter::ShelterSystem;
 pub use spatial_grid::{SpatialGrid, SpatialQuery};
+pub use spawning::{SpawnConfig, SpawningSystem};
 pub use time::TimeSystem;
 pub use world::WorldSystem;
 
