@@ -88,6 +88,25 @@ pub struct GameEntity {
     pub color: Color,
 }
 
+impl Default for GameEntity {
+    fn default() -> Self {
+        Self {
+            id: 0,
+            position: Position { x: 0.0, y: 0.0 },
+            velocity: None,
+            entity_type: super::game_data::EntityType::HostileInfected,
+            health: None,
+            combat_stats: None,
+            ai_state: super::combat::AIState::Idle,
+            blood_meter: None,
+            vampire_abilities: None,
+            shelter: None,
+            shelter_occupancy: None,
+            color: WHITE,
+        }
+    }
+}
+
 /// Render component for visual representation
 #[derive(Debug, Clone)]
 pub struct Render {
