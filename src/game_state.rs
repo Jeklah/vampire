@@ -74,6 +74,7 @@ pub struct GameState {
     pub spatial_grid: crate::systems::spatial_grid::SpatialGrid,
     pub max_entities: usize,
     pub entity_cleanup_distance: f32,
+    pub spawning_system: crate::systems::spawning::SpawningSystem,
 }
 
 impl GameState {
@@ -124,6 +125,7 @@ impl GameState {
             spatial_grid: crate::systems::spatial_grid::SpatialGrid::new(100.0),
             max_entities: 100,
             entity_cleanup_distance: 800.0,
+            spawning_system: crate::systems::spawning::SpawningSystem::new(),
         };
 
         // Initialize the world using the world system
@@ -170,6 +172,7 @@ impl GameState {
         self.ensure_ground_near_player();
         self.update_camera();
         self.update_phase_progression();
+        self.update_spawning_system();
 
         // Debug information every 5 seconds using macroquad timing
         if (self.game_time * 0.2).floor() != ((self.game_time - delta_time) * 0.2).floor() {
@@ -295,6 +298,7 @@ impl GameState {
         use macroquad::prelude::get_fps;
 
         let ai_stats = self.ai_system.get_ai_statistics();
+        let spawn_stats = self.spawning_system.get_stats().clone();
         let current_fps = get_fps();
 
         self.add_debug_message(format!(
@@ -305,6 +309,43 @@ impl GameState {
             self.entity_pool.current_size(),
             ai_stats.cached_entities,
             ai_stats.spatial_grid_cells
+        ));
+
+        // Count entities by type for spawn monitoring
+        let hostile_count = self
+            .entities
+            .iter()
+            .filter(|e| {
+                matches!(
+                    e.entity_type,
+                    crate::components::EntityType::HostileInfected
+                ) && !matches!(e.ai_state, crate::components::AIState::Dead)
+            })
+            .count();
+        let animal_count = self
+            .entities
+            .iter()
+            .filter(|e| {
+                matches!(e.entity_type, crate::components::EntityType::Animal)
+                    && !matches!(e.ai_state, crate::components::AIState::Dead)
+            })
+            .count();
+        let clan_count = self
+            .entities
+            .iter()
+            .filter(|e| {
+                matches!(e.entity_type, crate::components::EntityType::ClanMember(_))
+                    && !matches!(e.ai_state, crate::components::AIState::Dead)
+            })
+            .count();
+
+        self.add_debug_message(format!(
+            "Spawned: {} | H:{} A:{} C:{} | Fails:{}",
+            spawn_stats.total_spawned,
+            hostile_count,
+            animal_count,
+            clan_count,
+            spawn_stats.failed_spawns
         ));
 
         if ai_stats.performance_mode {
@@ -322,6 +363,7 @@ impl GameState {
     /// Toggle performance mode for all systems
     pub fn set_performance_mode(&mut self, enabled: bool) {
         self.ai_system.set_performance_mode(enabled);
+        self.spawning_system.set_performance_mode(enabled);
 
         if enabled {
             self.max_entities = 75;
@@ -348,12 +390,76 @@ impl GameState {
         // Use the more efficient batch cleanup with macroquad vectors
         self.batch_cleanup_with_macroquad();
 
+        // Trigger immediate respawning to refill the world
+        self.spawning_system.reset_timers(self.game_time);
+        self.update_spawning_system();
+
         let cleanup_time = get_time() - start_time;
 
         self.add_debug_message(format!(
-            "Force cleanup executed in {:.2}ms using macroquad",
+            "Force cleanup executed in {:.2}ms + respawning triggered",
             cleanup_time * 1000.0
         ));
+    }
+
+    /// Manually trigger spawning of a specific entity type (for debugging)
+    pub fn debug_spawn_entities(&mut self, entity_type: &str, count: usize) {
+        for _ in 0..count {
+            if self.entities.len() >= self.max_entities {
+                break;
+            }
+
+            if let Some(player_pos) = self.get_cached_player_data().map(|(pos, _)| pos) {
+                // Spawn near player but not too close
+                let angle = rand::gen_range(0.0, 2.0 * std::f32::consts::PI);
+                let distance = rand::gen_range(150.0, 300.0);
+                let spawn_x = player_pos.x + angle.cos() * distance;
+                let spawn_y = player_pos.y + angle.sin() * distance;
+
+                match entity_type {
+                    "hostile" => {
+                        crate::systems::world::WorldSystem::spawn_hostile_infected(
+                            &mut self.entities,
+                            &mut self.next_entity_id,
+                            spawn_x,
+                            spawn_y,
+                        );
+                        self.add_debug_message("Debug spawned hostile entity".to_string());
+                    }
+                    "animal" => {
+                        crate::systems::world::WorldSystem::spawn_animal(
+                            &mut self.entities,
+                            &mut self.next_entity_id,
+                            spawn_x,
+                            spawn_y,
+                        );
+                        self.add_debug_message("Debug spawned animal".to_string());
+                    }
+                    "clan_member" => {
+                        let clan_names = ["Bone-Eaters", "Flame-Haters", "Night-Bloods"];
+                        let clan_name = clan_names[rand::gen_range(0, clan_names.len())];
+                        let color = match clan_name {
+                            "Bone-Eaters" => macroquad::prelude::LIGHTGRAY,
+                            "Flame-Haters" => macroquad::prelude::VIOLET,
+                            "Night-Bloods" => macroquad::prelude::BLUE,
+                            _ => macroquad::prelude::WHITE,
+                        };
+                        crate::systems::world::WorldSystem::spawn_clan_member(
+                            &mut self.entities,
+                            &mut self.next_entity_id,
+                            clan_name,
+                            spawn_x,
+                            spawn_y,
+                            color,
+                        );
+                        self.add_debug_message(format!("Debug spawned {} clan member", clan_name));
+                    }
+                    _ => {
+                        self.add_debug_message(format!("Unknown entity type: {}", entity_type));
+                    }
+                }
+            }
+        }
     }
 
     /// Spawn entity using the pool system for better performance
@@ -529,6 +635,17 @@ impl GameState {
     fn update_ai_system(&mut self, delta_time: f32) {
         self.ai_system
             .update_all_ai(&mut self.entities, self.player_id, delta_time);
+    }
+
+    /// Update the spawning system to maintain entity populations
+    fn update_spawning_system(&mut self) {
+        self.spawning_system.update(
+            &mut self.entities,
+            &mut self.next_entity_id,
+            self.player_id,
+            self.game_time,
+            self.max_entities,
+        );
     }
 
     /// Update shelter system
