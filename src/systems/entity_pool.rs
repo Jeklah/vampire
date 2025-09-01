@@ -414,19 +414,26 @@ mod tests {
         let mut pool = EntityPool::new(5);
         let mut next_id = 1;
 
-        // Create some entities
+        // Create some entities - first one creates new, rest reuse
+        let mut entities = Vec::new();
         for _ in 0..3 {
             let entity = pool.spawn_entity(
                 EntityType::HostileInfected,
                 Position { x: 0.0, y: 0.0 },
                 &mut next_id,
             );
+            entities.push(entity);
+        }
+
+        // Return all entities to pool
+        for entity in entities {
             pool.release(entity);
         }
 
         let stats = pool.get_stats();
         assert_eq!(stats.total_created, 3);
         assert_eq!(stats.total_returned, 3);
+        assert_eq!(stats.total_reused, 0); // No reuse in this test
     }
 
     #[test]

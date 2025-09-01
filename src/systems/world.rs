@@ -1323,18 +1323,37 @@ mod tests {
     #[test]
     fn test_spawn_bounds() {
         let bounds = WorldSystem::get_spawn_bounds(&EntityType::Player);
-        assert_eq!(bounds, (350.0, 450.0, 640.0, 740.0));
+        assert_eq!(
+            bounds,
+            (
+                -1000.0,
+                GAME_WORLD_WIDTH + 1000.0,
+                GROUND_LEVEL,
+                GAME_WORLD_HEIGHT * 2.0
+            )
+        );
 
         let bounds = WorldSystem::get_spawn_bounds(&EntityType::Animal);
         assert_eq!(
             bounds,
             (
-                50.0,
-                GAME_WORLD_WIDTH - 400.0,
-                650.0,
-                GAME_WORLD_HEIGHT - 50.0
+                -1000.0,
+                GAME_WORLD_WIDTH + 1000.0,
+                GROUND_LEVEL,
+                GAME_WORLD_HEIGHT * 2.0
             )
         );
+
+        // Test that all entity types return consistent expanded bounds
+        let hostile_bounds = WorldSystem::get_spawn_bounds(&EntityType::HostileInfected);
+        let clan_bounds =
+            WorldSystem::get_spawn_bounds(&EntityType::ClanMember("Test".to_string()));
+        let shelter_bounds = WorldSystem::get_spawn_bounds(&EntityType::Shelter);
+
+        // All should have the same expanded bounds for dynamic spawning
+        assert_eq!(hostile_bounds, bounds);
+        assert_eq!(clan_bounds, bounds);
+        assert_eq!(shelter_bounds, bounds);
     }
 
     #[test]
