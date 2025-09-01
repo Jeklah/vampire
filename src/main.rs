@@ -53,6 +53,12 @@ async fn main() {
     game_state
         .add_debug_message("Game started in fullscreen mode (F11 to toggle windowed)".to_string());
 
+    // Add debug message about spawning system controls
+    game_state.add_debug_message(
+        "Debug keys: 1=Spawn Hostiles, 2=Spawn Animals, 3=Spawn Clan, C=Cleanup, P=Perf Mode"
+            .to_string(),
+    );
+
     let mut last_time = get_time();
     let mut frame_count = 0;
     let mut fps_timer = 0.0;
@@ -182,6 +188,17 @@ async fn main() {
         if is_key_pressed(KeyCode::C) {
             game_state.force_cleanup();
             game_state.add_debug_message("Manual cleanup executed".to_string());
+        }
+
+        // Debug spawning keys (for testing the spawning system)
+        if is_key_pressed(KeyCode::Key1) {
+            game_state.debug_spawn_entities("hostile", 3);
+        }
+        if is_key_pressed(KeyCode::Key2) {
+            game_state.debug_spawn_entities("animal", 3);
+        }
+        if is_key_pressed(KeyCode::Key3) {
+            game_state.debug_spawn_entities("clan_member", 1);
         }
 
         // Handle window close
