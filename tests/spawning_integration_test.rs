@@ -2,9 +2,11 @@
 //!
 //! This test verifies that the spawning system correctly maintains entity populations
 //! when integrated with the main game state and cleanup systems.
+//!
+//! Note: Some tests avoid calling methods that use macroquad functions due to
+//! thread-local storage limitations in test environments.
 
 use vampire_rpg::components::*;
-use vampire_rpg::systems::*;
 use vampire_rpg::GameState;
 
 #[test]
@@ -16,8 +18,8 @@ fn test_spawning_system_integration() {
     let initial_animal_count = count_animals(&game_state.entities);
 
     // Simulate some time passing and entities being cleaned up
-    // First, force cleanup to remove some entities
-    game_state.force_cleanup();
+    // Clear some entities manually to avoid macroquad dependencies in tests
+    game_state.entities.retain(|e| e.id == game_state.player_id);
 
     // Advance time significantly to trigger spawning
     for _ in 0..10 {

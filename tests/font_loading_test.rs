@@ -51,17 +51,26 @@ fn test_debug_message_limit_maintained() {
     // Create a new game state
     let mut game_state = GameState::new();
 
-    // Add 25 messages (more than the 20-message limit)
-    for i in 0..25 {
+    // Clear any initialization messages
+    game_state.debug_messages.clear();
+    game_state.debug_message_index = 0;
+
+    // Add 55 messages (more than the 50-message limit)
+    for i in 0..55 {
         game_state.add_debug_message(format!("Test message {}", i));
     }
 
-    // Verify that only the last 20 messages are kept
-    assert_eq!(game_state.debug_messages.len(), 20);
+    // Verify that only the last 50 messages are kept
+    assert_eq!(game_state.debug_messages.len(), 50);
 
-    // Verify the oldest messages were removed (messages 0-4 should be gone)
-    assert_eq!(game_state.debug_messages[0], "Test message 5");
-    assert_eq!(game_state.debug_messages[19], "Test message 24");
+    // Ring buffer structure: when 55 messages are added to a 50-slot buffer:
+    // - Messages 0-49 fill the buffer initially
+    // - Messages 50-54 overwrite slots 0-4 (the oldest entries)
+    // So slot 0 contains "Test message 50", slot 1 contains "Test message 51", etc.
+    // The oldest remaining message "Test message 5" is now at slot 5
+    assert_eq!(game_state.debug_messages[5], "Test message 5"); // Oldest message still in buffer
+    assert_eq!(game_state.debug_messages[0], "Test message 50"); // Newest message that wrapped around
+    assert_eq!(game_state.debug_messages[4], "Test message 54"); // Last message added
 }
 
 #[test]

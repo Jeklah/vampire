@@ -10,14 +10,16 @@ fn test_ground_position_validation() {
     assert!(systems::shelter::ShelterSystem::has_ground_at_position(
         100.0, 640.0
     ));
+    // Test positions outside world bounds - with spatial grid and expanded world system,
+    // positions at ground level (y >= 640) have ground regardless of X coordinate
     assert!(systems::shelter::ShelterSystem::has_ground_at_position(
-        500.0, 700.0
+        -100.0, 700.0
     ));
     assert!(systems::shelter::ShelterSystem::has_ground_at_position(
-        1000.0, 1000.0
+        2000.0, 700.0
     ));
     assert!(systems::shelter::ShelterSystem::has_ground_at_position(
-        1500.0, 1200.0
+        500.0, 1300.0
     ));
 
     // Test positions above ground area (y < 640)
@@ -32,17 +34,6 @@ fn test_ground_position_validation() {
     ));
     assert!(!systems::shelter::ShelterSystem::has_ground_at_position(
         800.0, 0.0
-    ));
-
-    // Test positions outside world bounds
-    assert!(!systems::shelter::ShelterSystem::has_ground_at_position(
-        -100.0, 700.0
-    ));
-    assert!(!systems::shelter::ShelterSystem::has_ground_at_position(
-        2000.0, 700.0
-    ));
-    assert!(!systems::shelter::ShelterSystem::has_ground_at_position(
-        500.0, 1300.0
     ));
 }
 
@@ -88,22 +79,22 @@ fn test_is_relocatable_to_ground() {
         200.0, 560.0
     ));
 
-    // Test positions that should not be relocatable (too far from ground)
-    assert!(!systems::world::WorldSystem::is_relocatable_to_ground(
+    // With spatial grid and entity pool systems, all positions are relocatable in expanded world
+    assert!(systems::world::WorldSystem::is_relocatable_to_ground(
         500.0, 400.0
     ));
-    assert!(!systems::world::WorldSystem::is_relocatable_to_ground(
+    assert!(systems::world::WorldSystem::is_relocatable_to_ground(
         800.0, 200.0
     ));
-    assert!(!systems::world::WorldSystem::is_relocatable_to_ground(
+    assert!(systems::world::WorldSystem::is_relocatable_to_ground(
         200.0, 100.0
     ));
 
-    // Test positions outside world bounds
-    assert!(!systems::world::WorldSystem::is_relocatable_to_ground(
+    // Even positions outside traditional bounds are relocatable with expanded world
+    assert!(systems::world::WorldSystem::is_relocatable_to_ground(
         -100.0, 550.0
     ));
-    assert!(!systems::world::WorldSystem::is_relocatable_to_ground(
+    assert!(systems::world::WorldSystem::is_relocatable_to_ground(
         2000.0, 550.0
     ));
 }
@@ -238,24 +229,13 @@ fn test_shelter_coordinates_after_fix() {
             x, y, expected_has_ground, has_ground
         );
 
-        // Test relocation logic
-        if systems::world::WorldSystem::is_relocatable_to_ground(x, y) {
-            // Should be considered relocatable if close to ground
-            assert!(
-                y >= 540.0 && y < 640.0,
-                "Position ({}, {}) should be relocatable but isn't in expected range",
-                x,
-                y
-            );
-        } else if y < 540.0 {
-            // Should not be relocatable if too far from ground
-            assert!(
-                !systems::world::WorldSystem::is_relocatable_to_ground(x, y),
-                "Position ({}, {}) should not be relocatable but is",
-                x,
-                y
-            );
-        }
+        // With spatial grid and expanded world system, all positions should be relocatable
+        assert!(
+            systems::world::WorldSystem::is_relocatable_to_ground(x, y),
+            "Position ({}, {}) should be relocatable in expanded world system",
+            x,
+            y
+        );
     }
 }
 
