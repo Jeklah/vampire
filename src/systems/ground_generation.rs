@@ -130,8 +130,8 @@ impl GroundGenerationSystem {
             active_generations: HashSet::new(),
             generated_areas: HashMap::new(),
             tile_cache: HashMap::new(),
-            max_tiles_per_frame: 20,
-            max_generation_distance: 800.0,
+            max_tiles_per_frame: 64,
+            max_generation_distance: 1200.0,
             grid_cell_size: TILE_SIZE,
             stats: GenerationStats::default(),
         }
@@ -481,11 +481,11 @@ impl GroundGenerationSystem {
     /// Set performance mode
     pub fn set_performance_mode(&mut self, enabled: bool) {
         if enabled {
-            self.max_tiles_per_frame = 10;
-            self.max_generation_distance = 400.0;
+            self.max_tiles_per_frame = 32;
+            self.max_generation_distance = 900.0;
         } else {
-            self.max_tiles_per_frame = 20;
-            self.max_generation_distance = 800.0;
+            self.max_tiles_per_frame = 64;
+            self.max_generation_distance = 1200.0;
         }
     }
 
