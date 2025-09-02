@@ -198,7 +198,20 @@ impl GameState {
     }
 
     /// Efficient batch cleanup using macroquad's vector operations for optimal performance
+    /// with entity-type-aware cleanup rules.
+    ///
+    /// # Cleanup Rules:
+    /// - **Player**: Never removed
+    /// - **Shelter**: Never removed (permanent world structures)
+    /// - **ClanLeader**: 3x cleanup distance (important NPCs)
+    /// - **ClanMember**: 2x cleanup distance (valuable NPCs)
+    /// - **HostileInfected/Animal**: Standard cleanup distance
+    /// - **Dead entities**: Always removed regardless of type or distance
+    ///
+    /// This fixes the critical bug where all distant entities were being removed,
+    /// including important structures like shelters and clan leaders.
     pub fn batch_cleanup_with_macroquad(&mut self) {
+        use crate::components::game_data::EntityType;
         use macroquad::prelude::vec2;
 
         let player_pos = self.get_cached_player_data().map(|(pos, _)| pos);
@@ -208,7 +221,9 @@ impl GameState {
 
         let player_position = player_pos.unwrap();
         let player_vec = vec2(player_position.x, player_position.y);
-        let cleanup_distance_sq = self.entity_cleanup_distance * self.entity_cleanup_distance;
+
+        // Pre-calculate cleanup distances to avoid borrowing issues
+        let base_cleanup_distance = self.entity_cleanup_distance;
 
         let _initial_count = self.entities.len();
         let mut removed_count = 0;
@@ -220,12 +235,28 @@ impl GameState {
             let should_keep = if entity.id == self.player_id {
                 true // Never remove player
             } else {
-                let entity_vec = vec2(entity.position.x, entity.position.y);
-                let distance_sq = player_vec.distance_squared(entity_vec);
-                let is_alive = !matches!(entity.ai_state, AIState::Dead)
-                    && !entity.health.as_ref().map_or(false, |h| h.current <= 0.0);
+                // Check if entity is dead first
+                let is_dead = matches!(entity.ai_state, AIState::Dead)
+                    || entity.health.as_ref().map_or(false, |h| h.current <= 0.0);
 
-                distance_sq < cleanup_distance_sq && is_alive
+                if is_dead {
+                    false // Always remove dead entities
+                } else {
+                    // Apply entity-type-specific cleanup rules for living entities
+                    let entity_vec = vec2(entity.position.x, entity.position.y);
+                    let distance_sq = player_vec.distance_squared(entity_vec);
+
+                    // Calculate cleanup distance based on entity type
+                    let cleanup_distance = match &entity.entity_type {
+                        EntityType::Shelter => f32::INFINITY, // Never cleanup shelters
+                        EntityType::ClanLeader(_) => base_cleanup_distance * 3.0, // Very large distance
+                        EntityType::ClanMember(_) => base_cleanup_distance * 2.0, // Large distance
+                        EntityType::HostileInfected | EntityType::Animal => base_cleanup_distance, // Standard
+                        EntityType::Player => f32::INFINITY, // Never cleanup player (handled above)
+                    };
+
+                    distance_sq < cleanup_distance.powi(2)
+                }
             };
 
             if should_keep {
@@ -243,9 +274,33 @@ impl GameState {
 
         if removed_count > 0 {
             self.add_debug_message(format!(
-                "Batch cleanup: removed {} entities using macroquad vectors",
+                "Smart cleanup: removed {} entities (preserving important types)",
                 removed_count
             ));
+        }
+    }
+
+    /// Get the cleanup distance for a specific entity type.
+    ///
+    /// Returns the maximum distance from the player at which entities of this type
+    /// will be kept alive. Uses different distances based on entity importance:
+    /// - Permanent structures (shelters): Never cleaned up (infinite distance)
+    /// - Important NPCs (clan leaders): 3x standard distance
+    /// - Valuable NPCs (clan members): 2x standard distance
+    /// - Common entities (hostiles, animals): Standard distance
+    ///
+    /// # Arguments
+    /// * `entity_type` - The type of entity to get cleanup distance for
+    ///
+    /// # Returns
+    /// The cleanup distance in pixels, or f32::INFINITY for entities that should never be cleaned up
+    fn get_entity_cleanup_distance(&self, entity_type: &EntityType) -> f32 {
+        match entity_type {
+            EntityType::Shelter => f32::INFINITY, // Never cleanup shelters
+            EntityType::ClanLeader(_) => self.entity_cleanup_distance * 3.0, // Very large distance
+            EntityType::ClanMember(_) => self.entity_cleanup_distance * 2.0, // Large distance
+            EntityType::HostileInfected | EntityType::Animal => self.entity_cleanup_distance, // Standard
+            EntityType::Player => f32::INFINITY, // Never cleanup player
         }
     }
 
@@ -1295,5 +1350,131 @@ mod tests {
             .last()
             .unwrap()
             .contains("Debug messages enabled"));
+    }
+
+    #[test]
+    fn test_entity_cleanup_preserves_important_entities() {
+        use crate::components::game_data::EntityType;
+        use crate::components::*;
+
+        let mut game_state = GameState::new();
+
+        // Clear existing entities except player
+        let player_id = game_state.player_id;
+        game_state.entities.retain(|e| e.id == player_id);
+
+        // Add test entities at various distances from player (assuming player at 400, 650)
+        let player_pos = Position { x: 400.0, y: 650.0 };
+
+        // Add a shelter far away (should never be cleaned up)
+        let shelter = GameEntity {
+            id: 100,
+            position: Position {
+                x: 1500.0,
+                y: 700.0,
+            }, // 1100 pixels away
+            entity_type: EntityType::Shelter,
+            ai_state: AIState::Idle,
+            health: Some(Health {
+                current: 100.0,
+                max: 100.0,
+            }),
+            ..Default::default()
+        };
+        game_state.entities.push(shelter);
+
+        // Add a clan leader far away (should be preserved with 3x distance)
+        let clan_leader = GameEntity {
+            id: 101,
+            position: Position {
+                x: 1800.0,
+                y: 700.0,
+            }, // 1400 pixels away
+            entity_type: EntityType::ClanLeader("TestClan".to_string()),
+            ai_state: AIState::Idle,
+            health: Some(Health {
+                current: 100.0,
+                max: 100.0,
+            }),
+            ..Default::default()
+        };
+        game_state.entities.push(clan_leader);
+
+        // Add a hostile entity far away (should be cleaned up)
+        let hostile = GameEntity {
+            id: 102,
+            position: Position {
+                x: 1500.0,
+                y: 700.0,
+            }, // 1100 pixels away
+            entity_type: EntityType::HostileInfected,
+            ai_state: AIState::Idle,
+            health: Some(Health {
+                current: 100.0,
+                max: 100.0,
+            }),
+            ..Default::default()
+        };
+        game_state.entities.push(hostile);
+
+        // Add a dead entity (should always be cleaned up)
+        let dead_entity = GameEntity {
+            id: 103,
+            position: Position { x: 450.0, y: 670.0 }, // Close to player
+            entity_type: EntityType::Animal,
+            ai_state: AIState::Dead,
+            health: Some(Health {
+                current: 0.0,
+                max: 100.0,
+            }),
+            ..Default::default()
+        };
+        game_state.entities.push(dead_entity);
+
+        let initial_count = game_state.entities.len();
+        assert_eq!(initial_count, 5); // Player + 4 test entities
+
+        // Run cleanup
+        game_state.batch_cleanup_with_macroquad();
+
+        // Verify results
+        let remaining_entities: Vec<_> = game_state.entities.iter().map(|e| e.id).collect();
+
+        // Player should still exist
+        assert!(
+            remaining_entities.contains(&player_id),
+            "Player should never be cleaned up"
+        );
+
+        // Shelter should still exist (never cleaned up)
+        assert!(
+            remaining_entities.contains(&100),
+            "Shelter should never be cleaned up"
+        );
+
+        // Clan leader should still exist (3x cleanup distance)
+        assert!(
+            remaining_entities.contains(&101),
+            "Clan leader should be preserved with large cleanup distance"
+        );
+
+        // Hostile entity should be cleaned up (too far)
+        assert!(
+            !remaining_entities.contains(&102),
+            "Distant hostile should be cleaned up"
+        );
+
+        // Dead entity should be cleaned up
+        assert!(
+            !remaining_entities.contains(&103),
+            "Dead entity should always be cleaned up"
+        );
+
+        // Verify we removed exactly 2 entities (hostile and dead)
+        assert_eq!(
+            game_state.entities.len(),
+            3,
+            "Should have 3 entities remaining (player, shelter, clan leader)"
+        );
     }
 }
