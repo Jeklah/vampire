@@ -6,6 +6,7 @@
 
 use crate::components::environment::{TileTextureData, TileType};
 use crate::components::*;
+use crate::systems::ground_generation::GroundGenerationSystem;
 use crate::systems::world::{WorldSystem, FOG_COLOR, FOG_TILE_SIZE, GROUND_LEVEL, TILE_SIZE};
 use macroquad::prelude::*;
 use std::collections::HashSet;
@@ -80,6 +81,8 @@ pub struct ExplorationSystem {
     /// Last camera position for cache invalidation
     last_cache_camera_x: f32,
     last_cache_camera_y: f32,
+    /// Real-time ground generation system
+    ground_generator: GroundGenerationSystem,
     /// Performance settings
     max_ground_tiles: usize,
     max_explored_regions: usize,
@@ -97,6 +100,7 @@ impl ExplorationSystem {
             fog_cache_valid: false,
             last_cache_camera_x: 0.0,
             last_cache_camera_y: 0.0,
+            ground_generator: GroundGenerationSystem::new(),
             max_ground_tiles: 500,
             max_explored_regions: 100,
             grid_cell_size: TILE_SIZE,
@@ -325,8 +329,33 @@ impl ExplorationSystem {
 
     /// Update exploration based on player position
     pub fn update_exploration(&mut self, player_x: f32, player_y: f32, current_time: f32) {
-        // Mark area around player as explored
+        // Check if player is entering unexplored areas
         let exploration_radius = 128.0;
+        let upcoming_areas =
+            self.get_upcoming_exploration_areas(player_x, player_y, exploration_radius);
+
+        // Request ground generation for unexplored areas BEFORE marking them explored
+        for (area_x, area_y) in upcoming_areas {
+            if !self.is_area_explored(area_x, area_y, TILE_SIZE, TILE_SIZE) {
+                // Request immediate ground generation for areas player is entering
+                self.ground_generator.request_exploration_ground(
+                    area_x,
+                    area_y,
+                    TILE_SIZE * 2.0,
+                    current_time,
+                );
+            }
+        }
+
+        // Process ground generation requests
+        let generation_result = self.ground_generator.update(current_time);
+
+        // Add generated tiles to persistent storage
+        for tile in generation_result.tiles_generated {
+            self.add_ground_tile(tile, current_time);
+        }
+
+        // Now mark area around player as explored (fog will disappear)
         self.mark_area_explored(player_x, player_y, exploration_radius, current_time);
 
         // Update last accessed time for nearby ground tiles
@@ -462,6 +491,7 @@ impl ExplorationSystem {
             self.max_ground_tiles = 500;
             self.max_explored_regions = 100;
         }
+        self.ground_generator.set_performance_mode(enabled);
     }
 
     /// Clear all exploration data (for level resets)
@@ -469,7 +499,54 @@ impl ExplorationSystem {
         self.persistent_ground.clear();
         self.explored_regions.clear();
         self.explored_grid.clear();
+        self.ground_generator.clear();
         self.invalidate_fog_cache();
+    }
+
+    /// Get areas that the player is about to explore (for ground generation)
+    fn get_upcoming_exploration_areas(
+        &self,
+        player_x: f32,
+        player_y: f32,
+        radius: f32,
+    ) -> Vec<(f32, f32)> {
+        let mut areas = Vec::new();
+        let step = TILE_SIZE;
+
+        // Create a grid of points around the player
+        let min_x = player_x - radius;
+        let max_x = player_x + radius;
+        let min_y = (player_y - radius).max(GROUND_LEVEL);
+        let max_y = player_y + radius;
+
+        let mut x = min_x;
+        while x <= max_x {
+            let mut y = min_y;
+            while y <= max_y {
+                // Check if this point is within the exploration radius
+                let dx = x - player_x;
+                let dy = y - player_y;
+                if (dx * dx + dy * dy) <= (radius * radius) {
+                    areas.push((WorldSystem::snap_to_grid(x), WorldSystem::snap_to_grid(y)));
+                }
+                y += step;
+            }
+            x += step;
+        }
+
+        areas
+    }
+
+    /// Request immediate ground generation for player's current position
+    pub fn request_immediate_ground(&mut self, player_x: f32, player_y: f32, current_time: f32) {
+        self.ground_generator
+            .request_immediate_ground(player_x, player_y, current_time);
+
+        // Process the request immediately for critical areas
+        let generation_result = self.ground_generator.update(current_time);
+        for tile in generation_result.tiles_generated {
+            self.add_ground_tile(tile, current_time);
+        }
     }
 }
 
