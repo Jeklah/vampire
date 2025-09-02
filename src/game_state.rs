@@ -203,13 +203,14 @@ impl GameState {
     /// # Cleanup Rules:
     /// - **Player**: Never removed
     /// - **Shelter**: Never removed (permanent world structures)
-    /// - **ClanLeader**: 3x cleanup distance (important NPCs)
-    /// - **ClanMember**: 2x cleanup distance (valuable NPCs)
-    /// - **HostileInfected/Animal**: Standard cleanup distance
+    /// - **ClanLeader**: Never removed (important NPCs)
+    /// - **ClanMember**: Never removed (valuable NPCs)
+    /// - **HostileInfected**: Never removed (combat entities)
+    /// - **Animal**: Standard cleanup distance only
     /// - **Dead entities**: Always removed regardless of type or distance
     ///
-    /// This fixes the critical bug where all distant entities were being removed,
-    /// including important structures like shelters and clan leaders.
+    /// This ensures persistent gameplay entities remain in the world while only
+    /// cleaning up animals at distance and dead entities.
     pub fn batch_cleanup_with_macroquad(&mut self) {
         use crate::components::game_data::EntityType;
         use macroquad::prelude::vec2;
@@ -249,9 +250,10 @@ impl GameState {
                     // Calculate cleanup distance based on entity type
                     let cleanup_distance = match &entity.entity_type {
                         EntityType::Shelter => f32::INFINITY, // Never cleanup shelters
-                        EntityType::ClanLeader(_) => base_cleanup_distance * 3.0, // Very large distance
-                        EntityType::ClanMember(_) => base_cleanup_distance * 2.0, // Large distance
-                        EntityType::HostileInfected | EntityType::Animal => base_cleanup_distance, // Standard
+                        EntityType::ClanLeader(_) => f32::INFINITY, // Never cleanup clan leaders
+                        EntityType::ClanMember(_) => f32::INFINITY, // Never cleanup clan members
+                        EntityType::HostileInfected => f32::INFINITY, // Never cleanup enemies
+                        EntityType::Animal => base_cleanup_distance, // Only animals use standard cleanup
                         EntityType::Player => f32::INFINITY, // Never cleanup player (handled above)
                     };
 
@@ -283,11 +285,12 @@ impl GameState {
     /// Get the cleanup distance for a specific entity type.
     ///
     /// Returns the maximum distance from the player at which entities of this type
-    /// will be kept alive. Uses different distances based on entity importance:
+    /// will be kept alive. Most entities are now persistent for better gameplay:
     /// - Permanent structures (shelters): Never cleaned up (infinite distance)
-    /// - Important NPCs (clan leaders): 3x standard distance
-    /// - Valuable NPCs (clan members): 2x standard distance
-    /// - Common entities (hostiles, animals): Standard distance
+    /// - Important NPCs (clan leaders): Never cleaned up (infinite distance)
+    /// - Valuable NPCs (clan members): Never cleaned up (infinite distance)
+    /// - Combat entities (hostiles): Never cleaned up (infinite distance)
+    /// - Animals: Standard distance cleanup only
     ///
     /// # Arguments
     /// * `entity_type` - The type of entity to get cleanup distance for
@@ -297,10 +300,11 @@ impl GameState {
     fn get_entity_cleanup_distance(&self, entity_type: &EntityType) -> f32 {
         match entity_type {
             EntityType::Shelter => f32::INFINITY, // Never cleanup shelters
-            EntityType::ClanLeader(_) => self.entity_cleanup_distance * 3.0, // Very large distance
-            EntityType::ClanMember(_) => self.entity_cleanup_distance * 2.0, // Large distance
-            EntityType::HostileInfected | EntityType::Animal => self.entity_cleanup_distance, // Standard
-            EntityType::Player => f32::INFINITY, // Never cleanup player
+            EntityType::ClanLeader(_) => f32::INFINITY, // Never cleanup clan leaders
+            EntityType::ClanMember(_) => f32::INFINITY, // Never cleanup clan members
+            EntityType::HostileInfected => f32::INFINITY, // Never cleanup enemies
+            EntityType::Animal => self.entity_cleanup_distance, // Only animals use standard cleanup
+            EntityType::Player => f32::INFINITY,  // Never cleanup player
         }
     }
 
@@ -1383,7 +1387,7 @@ mod tests {
         };
         game_state.entities.push(shelter);
 
-        // Add a clan leader far away (should be preserved with 3x distance)
+        // Add a clan leader far away (should be preserved - never cleaned up)
         let clan_leader = GameEntity {
             id: 101,
             position: Position {
@@ -1400,7 +1404,7 @@ mod tests {
         };
         game_state.entities.push(clan_leader);
 
-        // Add a hostile entity far away (should be cleaned up)
+        // Add a hostile entity far away (should be preserved - never cleaned up)
         let hostile = GameEntity {
             id: 102,
             position: Position {
@@ -1452,16 +1456,16 @@ mod tests {
             "Shelter should never be cleaned up"
         );
 
-        // Clan leader should still exist (3x cleanup distance)
+        // Clan leader should still exist (never cleaned up)
         assert!(
             remaining_entities.contains(&101),
-            "Clan leader should be preserved with large cleanup distance"
+            "Clan leader should never be cleaned up"
         );
 
-        // Hostile entity should be cleaned up (too far)
+        // Hostile entity should still exist (never cleaned up)
         assert!(
-            !remaining_entities.contains(&102),
-            "Distant hostile should be cleaned up"
+            remaining_entities.contains(&102),
+            "Hostile should never be cleaned up"
         );
 
         // Dead entity should be cleaned up
@@ -1470,11 +1474,11 @@ mod tests {
             "Dead entity should always be cleaned up"
         );
 
-        // Verify we removed exactly 2 entities (hostile and dead)
+        // Verify we removed exactly 1 entity (dead only)
         assert_eq!(
             game_state.entities.len(),
-            3,
-            "Should have 3 entities remaining (player, shelter, clan leader)"
+            4,
+            "Should have 4 entities remaining (player, shelter, clan leader, hostile)"
         );
     }
 }
