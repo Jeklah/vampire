@@ -7,6 +7,7 @@
 pub mod ai;
 pub mod blood;
 pub mod entity_pool;
+pub mod exploration;
 pub mod objectives;
 pub mod player;
 pub mod shelter;
@@ -19,6 +20,7 @@ pub mod world;
 pub use ai::AISystem;
 pub use blood::BloodSystem;
 pub use entity_pool::{EntityPool, GlobalEntityPool};
+pub use exploration::{ExplorationStats, ExplorationSystem, ExploredRegion, PersistentGroundTile};
 pub use objectives::ObjectivesSystem;
 pub use player::PlayerSystem;
 pub use shelter::ShelterSystem;
@@ -29,6 +31,7 @@ pub use world::WorldSystem;
 
 // Re-export common types used by systems
 pub use blood::{ActivityLevel, BloodStatus, SurvivalScore};
+
 pub use objectives::ObjectiveProgress;
 pub use player::{ExperienceType, PlayerAction, PlayerStatus};
 pub use shelter::ShelterInfo;
