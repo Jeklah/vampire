@@ -676,11 +676,28 @@ impl GameState {
     /// Update the exploration system for persistent ground and fog management
     fn update_exploration_system(&mut self) {
         if let Some((player_pos, _)) = self.get_cached_player_data() {
-            // Update exploration based on player position
+            // Check if player has moved significantly and request immediate ground generation
+            let movement_x = (player_pos.x - self.last_player_x).abs();
+            let movement_y = (player_pos.y - self.last_player_y).abs();
+            let significant_movement = movement_x > 32.0 || movement_y > 32.0;
+
+            // Request immediate ground generation for areas player is moving into
+            if significant_movement {
+                self.exploration_system.request_immediate_ground(
+                    player_pos.x,
+                    player_pos.y,
+                    self.game_time,
+                );
+
+                // Update tracking
+                self.last_player_x = player_pos.x;
+            }
+
+            // Update exploration based on player position (this will generate ground and remove fog)
             self.exploration_system
                 .update_exploration(player_pos.x, player_pos.y, self.game_time);
 
-            // Ensure ground exists near player
+            // Ensure ground exists near player (fallback generation)
             self.exploration_system.ensure_ground_near_player(
                 player_pos.x,
                 player_pos.y,
@@ -690,10 +707,8 @@ impl GameState {
             // Sync exploration system ground tiles with legacy ground_tiles for compatibility
             let exploration_ground = self.exploration_system.get_ground_tiles();
 
-            // Only sync if there are significant differences
-            if (exploration_ground.len() as i32 - self.ground_tiles.len() as i32).abs() > 10 {
-                self.ground_tiles = exploration_ground;
-            }
+            // Always sync to ensure newly generated tiles are visible
+            self.ground_tiles = exploration_ground;
         }
     }
 
