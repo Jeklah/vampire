@@ -761,162 +761,39 @@ impl WorldSystem {
         true // Always allow relocation in expanded world
     }
 
-    /// Ensure ground tiles exist near the player, spawning them anywhere needed (including above horizon)
+    /// DEPRECATED: Legacy ground generation method - now handled by ExplorationSystem
+    /// This method is kept for backwards compatibility but does minimal work to prevent
+    /// conflicts with the new ExplorationSystem ground generation.
     pub fn ensure_ground_near_player(
-        ground_tiles: &mut Vec<GroundTile>,
+        _ground_tiles: &mut Vec<GroundTile>,
         player_x: f32,
         player_y: f32,
         debug_messages: &mut Vec<String>,
     ) {
-        let tile_size = 64.0;
-        let check_radius_x = 640.0; // Larger check area for better coverage in all directions
-        let check_radius_y = 480.0; // Larger check area for better coverage in all directions
+        // DEPRECATED: This legacy method is now a no-op to prevent conflicts
+        // All ground generation is handled by ExplorationSystem to eliminate
+        // the "every other column" spawning issue caused by dual systems.
 
-        // Define the area around the player to check for ground
-        let min_check_x = player_x - check_radius_x; // Can go negative (left of world)
-        let max_check_x = player_x + check_radius_x; // Can go beyond world width
-
-        // For horizon walking, always ensure ground exists at horizon level and below
-        let effective_player_y = if player_y < GROUND_LEVEL {
-            GROUND_LEVEL // Treat horizon as player position for ground generation
-        } else {
-            player_y
-        };
-
-        let min_check_y = (effective_player_y - check_radius_y).max(GROUND_LEVEL);
-        let max_check_y = effective_player_y + check_radius_y;
-
-        // Count existing ground tiles in the area
-        let existing_tiles = ground_tiles
-            .iter()
-            .filter(|tile| {
-                tile.x >= min_check_x
-                    && tile.x <= max_check_x
-                    && tile.y >= min_check_y
-                    && tile.y <= max_check_y
-            })
-            .count();
-
-        // Calculate how many tiles we should have in this area (reduced expectations)
-        let tiles_across = ((max_check_x - min_check_x) / tile_size).ceil() as i32;
-        let tiles_down = ((max_check_y - min_check_y) / tile_size).ceil() as i32;
-        let expected_tiles = (tiles_across * tiles_down) as usize;
-
-        // More aggressive spawning for better coverage in all directions
-        if existing_tiles < expected_tiles * 3 / 4 {
-            let mut tiles_added = 0;
-            let max_tiles_to_add = 64; // Allow more tiles for better coverage in expanded world
-
-            // Multiple passes for better coverage
-            for pass in 0..2 {
-                // First pass: regular grid, second pass: fill gaps
-                let step_size = if pass == 0 { 1 } else { 2 };
-
-                // Spawn ground tiles in a grid pattern around the player
-                for i in (0..tiles_across).step_by(step_size) {
-                    for j in (0..tiles_down).step_by(step_size) {
-                        if tiles_added >= max_tiles_to_add {
-                            break;
-                        }
-
-                        let x = min_check_x + (i as f32 * tile_size);
-                        let y = min_check_y + (j as f32 * tile_size);
-
-                        // Ensure ground only spawns at or below horizon line
-                        if y < GROUND_LEVEL {
-                            continue;
-                        }
-
-                        // Check if a tile already exists at this position
-                        let tile_exists = ground_tiles.iter().any(|tile| {
-                            (tile.x - x).abs() < tile_size * 0.5
-                                && (tile.y - y).abs() < tile_size * 0.5
-                        });
-
-                        if !tile_exists {
-                            let tile_type = Self::determine_tile_type();
-                            ground_tiles.push(GroundTile::new(x, y, tile_type));
-                            tiles_added += 1;
-                        }
-                    }
-                }
-
-                if tiles_added >= max_tiles_to_add {
-                    break;
-                }
-            }
-
-            if tiles_added > 0 {
-                debug_messages.push(format!(
-                    "AUTO-SPAWN: {} ground tiles near player at ({:.0}, {:.0}) - coverage: {}/{} tiles",
-                    tiles_added, player_x, effective_player_y, existing_tiles + tiles_added, expected_tiles
-                ));
-            }
-        }
-
-        // Additional directional spawning for movement responsiveness
-        Self::spawn_directional_ground(ground_tiles, player_x, player_y, debug_messages);
+        // Only add a debug message to indicate the method was called
+        debug_messages.push(format!(
+            "LEGACY: WorldSystem::ensure_ground_near_player called at ({:.0}, {:.0}) - using ExplorationSystem instead",
+            player_x, player_y
+        ));
     }
 
-    /// Spawn ground tiles in the direction of player movement for better responsiveness
+    /// DEPRECATED: Legacy directional ground spawning - now handled by ExplorationSystem
     fn spawn_directional_ground(
-        ground_tiles: &mut Vec<GroundTile>,
+        _ground_tiles: &mut Vec<GroundTile>,
         player_x: f32,
         player_y: f32,
         debug_messages: &mut Vec<String>,
     ) {
-        let tile_size = 64.0;
-        let _directional_distance = 256.0; // Spawn ahead in all directions
-
-        // Spawn in 8 directions around player (N, NE, E, SE, S, SW, W, NW)
-        let directions = [
-            (0.0, -1.0),  // North (up)
-            (1.0, -1.0),  // Northeast
-            (1.0, 0.0),   // East (right)
-            (1.0, 1.0),   // Southeast
-            (0.0, 1.0),   // South (down)
-            (-1.0, 1.0),  // Southwest
-            (-1.0, 0.0),  // West (left)
-            (-1.0, -1.0), // Northwest
-        ];
-
-        let mut directional_tiles_added = 0;
-
-        for (dx, dy) in directions.iter() {
-            // Calculate spawn positions in this direction
-            for distance in (1..=4).map(|i| i as f32 * tile_size) {
-                let spawn_x = player_x + (dx * distance);
-                let spawn_y = player_y + (dy * distance);
-
-                // Snap to grid
-                let grid_x = (spawn_x / tile_size).round() * tile_size;
-                let grid_y = (spawn_y / tile_size).round() * tile_size;
-
-                // Only spawn ground at or below horizon line
-                if grid_y < GROUND_LEVEL {
-                    continue;
-                }
-
-                // Check if tile already exists
-                let tile_exists = ground_tiles.iter().any(|tile| {
-                    (tile.x - grid_x).abs() < tile_size * 0.3
-                        && (tile.y - grid_y).abs() < tile_size * 0.3
-                });
-
-                if !tile_exists {
-                    let tile_type = Self::determine_tile_type();
-                    ground_tiles.push(GroundTile::new(grid_x, grid_y, tile_type));
-                    directional_tiles_added += 1;
-                }
-            }
-        }
-
-        if directional_tiles_added > 0 {
-            debug_messages.push(format!(
-                "DIRECTIONAL: {} ground tiles spawned around player at ({:.0}, {:.0})",
-                directional_tiles_added, player_x, player_y
-            ));
-        }
+        // DEPRECATED: This method is now a no-op to prevent dual-system conflicts
+        // ExplorationSystem handles all directional ground generation
+        debug_messages.push(format!(
+            "LEGACY: spawn_directional_ground called at ({:.0}, {:.0}) - using ExplorationSystem instead",
+            player_x, player_y
+        ));
     }
 
     /// Spawn a clan member at a specific location
