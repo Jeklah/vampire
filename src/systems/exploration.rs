@@ -101,7 +101,7 @@ impl ExplorationSystem {
             last_cache_camera_x: 0.0,
             last_cache_camera_y: 0.0,
             ground_generator: GroundGenerationSystem::new(),
-            max_ground_tiles: 500,
+            max_ground_tiles: 1000,
             max_explored_regions: 100,
             grid_cell_size: TILE_SIZE,
         }
@@ -376,9 +376,9 @@ impl ExplorationSystem {
 
     /// Generate ground tiles around player if needed
     pub fn ensure_ground_near_player(&mut self, player_x: f32, player_y: f32, current_time: f32) {
-        // Use a more responsive generation approach
-        let inner_radius = 256.0; // Close area - always filled
-        let outer_radius = 512.0; // Extended area - filled as needed
+        // Use a more responsive generation approach with larger visibility area
+        let inner_radius = 512.0; // Close area - always filled (increased from 256)
+        let outer_radius = 1024.0; // Extended area - filled as needed (increased from 512)
 
         // First pass: Ensure immediate area around player has complete coverage
         self.generate_ground_in_radius(player_x, player_y, inner_radius, current_time, true);
@@ -404,7 +404,7 @@ impl ExplorationSystem {
 
         let mut tiles_to_add = Vec::new();
         let mut tiles_added_this_call = 0;
-        let max_tiles_per_call = if force_complete { 200 } else { 64 };
+        let max_tiles_per_call = if force_complete { 400 } else { 128 };
 
         // Generate tiles in a precise grid pattern
         let mut x = min_x;
@@ -515,10 +515,10 @@ impl ExplorationSystem {
     /// Set performance mode
     pub fn set_performance_mode(&mut self, enabled: bool) {
         if enabled {
-            self.max_ground_tiles = 300;
+            self.max_ground_tiles = 600;
             self.max_explored_regions = 50;
         } else {
-            self.max_ground_tiles = 500;
+            self.max_ground_tiles = 1000;
             self.max_explored_regions = 100;
         }
         self.ground_generator.set_performance_mode(enabled);
