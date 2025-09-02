@@ -186,7 +186,6 @@ impl GameState {
         self.update_objectives_system();
         self.update_horizon_movement_detection();
         self.update_horizon_ground_effect();
-        self.ensure_ground_near_player();
         self.update_camera();
         self.update_phase_progression();
         self.update_spawning_system();
@@ -1082,8 +1081,9 @@ impl GameState {
 
     /// Ensure ground tiles exist near the player position - now handled by exploration system
     fn ensure_ground_near_player(&mut self) {
-        // This is now handled by the exploration system in update_exploration_system()
-        // Keeping this method for compatibility, but functionality moved to exploration system
+        // REMOVED: This method was causing dual ground generation conflicts
+        // All ground generation is now handled exclusively by the exploration system
+        // in update_exploration_system() to prevent "every other column" spawning issues
     }
 
     /// Additional directional spawning for movement responsiveness
