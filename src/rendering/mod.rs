@@ -22,11 +22,6 @@ pub struct Renderer {
     ui_scale: f32,
     base_width: f32,
     base_height: f32,
-    // Fog caching for performance
-    cached_fog_areas: Vec<(f32, f32, f32, f32, f32)>,
-    fog_cache_valid: bool,
-    last_fog_camera_x: f32,
-    last_fog_camera_y: f32,
 }
 
 impl Renderer {
@@ -44,10 +39,6 @@ impl Renderer {
             ui_scale: 1.0,
             base_width: 1280.0,
             base_height: 720.0,
-            cached_fog_areas: Vec::new(),
-            fog_cache_valid: false,
-            last_fog_camera_x: 0.0,
-            last_fog_camera_y: 0.0,
         }
     }
 
@@ -953,8 +944,9 @@ impl Renderer {
             );
         }
 
-        // Use cached fog areas for debugging to avoid recalculation
-        let fog_count = self.cached_fog_areas.len();
+        // Get fog count from exploration system for debugging
+        let fog_stats = game_state.exploration_system.get_stats();
+        let fog_count = fog_stats.fog_cache_areas;
 
         // Calculate fog efficiency ratio (ground tiles vs fog areas)
         let efficiency_ratio = if fog_count > 0 {
@@ -1057,44 +1049,21 @@ impl Renderer {
         camera_offset_x: f32,
         camera_offset_y: f32,
     ) {
-        use crate::systems::world::{WorldSystem, FOG_COLOR};
+        use crate::systems::world::FOG_COLOR;
 
-        // Check if fog cache needs updating (less frequent updates for performance)
-        let camera_moved = (game_state.camera_x - self.last_fog_camera_x).abs() > 200.0
-            || (game_state.camera_y - self.last_fog_camera_y).abs() > 200.0;
+        // Use exploration system for persistent fog of war management
+        let fog_areas = game_state.exploration_system.calculate_fog_areas(
+            game_state.camera_x,
+            game_state.camera_y,
+            screen_width(),
+            screen_height(),
+            self.zoom_level,
+            game_state.game_time,
+        );
 
-        if !self.fog_cache_valid || camera_moved || game_state.fog_cache_invalidated {
-            // Limit fog calculations for performance - only recalculate if really needed
-            if self.cached_fog_areas.len() < 100 || camera_moved {
-                self.cached_fog_areas = WorldSystem::calculate_fog_areas(
-                    &game_state.ground_tiles,
-                    game_state.camera_x,
-                    game_state.camera_y,
-                    screen_width(),
-                    screen_height(),
-                    self.zoom_level,
-                );
-
-                // Skip overlap removal for performance if there are too many fog areas
-                if self.cached_fog_areas.len() < 50 {
-                    WorldSystem::remove_overlapping_fog(
-                        &mut self.cached_fog_areas,
-                        &game_state.ground_tiles,
-                    );
-                }
-            }
-
-            self.fog_cache_valid = true;
-            self.last_fog_camera_x = game_state.camera_x;
-            self.last_fog_camera_y = game_state.camera_y;
-
-            // Clear the invalidation flag after cache update
-            game_state.clear_fog_cache_invalidation();
-        }
-
-        // Draw cached fog rectangles with enhanced culling
+        // Draw fog rectangles with enhanced culling
         let margin = 50.0;
-        for (fog_x, fog_y, fog_width, fog_height, alpha) in &self.cached_fog_areas {
+        for (fog_x, fog_y, fog_width, fog_height, alpha) in fog_areas {
             let screen_x = fog_x * self.zoom_level + camera_offset_x;
             let screen_y = fog_y * self.zoom_level + camera_offset_y;
             let fog_screen_width = fog_width * self.zoom_level;
