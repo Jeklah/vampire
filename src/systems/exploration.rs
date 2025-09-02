@@ -142,11 +142,14 @@ impl ExplorationSystem {
 
     /// Check if there's a ground tile at the specified location
     pub fn has_ground_tile_at(&self, x: f32, y: f32) -> bool {
+        // Use grid-aligned detection to prevent gaps between tiles
+        let grid_x = WorldSystem::snap_to_grid(x);
+        let grid_y = WorldSystem::snap_to_grid(y);
+
         self.persistent_ground.iter().any(|persistent_tile| {
             let tile = &persistent_tile.tile;
-            let dx = (tile.x - x).abs();
-            let dy = (tile.y - y).abs();
-            dx < TILE_SIZE && dy < TILE_SIZE
+            // Check if tiles are at the same grid position (exact match)
+            (tile.x - grid_x).abs() < 0.1 && (tile.y - grid_y).abs() < 0.1
         })
     }
 
@@ -373,49 +376,76 @@ impl ExplorationSystem {
 
     /// Generate ground tiles around player if needed
     pub fn ensure_ground_near_player(&mut self, player_x: f32, player_y: f32, current_time: f32) {
-        let generation_radius = 400.0;
-        let tile_spacing = TILE_SIZE;
+        // Use a more responsive generation approach
+        let inner_radius = 256.0; // Close area - always filled
+        let outer_radius = 512.0; // Extended area - filled as needed
 
-        // Calculate area to check
-        let min_x = player_x - generation_radius;
-        let max_x = player_x + generation_radius;
-        let min_y = (player_y - generation_radius).max(GROUND_LEVEL);
-        let max_y = player_y + generation_radius;
+        // First pass: Ensure immediate area around player has complete coverage
+        self.generate_ground_in_radius(player_x, player_y, inner_radius, current_time, true);
+
+        // Second pass: Fill extended area with directional prediction
+        self.generate_ground_in_radius(player_x, player_y, outer_radius, current_time, false);
+    }
+
+    /// Generate ground tiles within a specific radius
+    fn generate_ground_in_radius(
+        &mut self,
+        center_x: f32,
+        center_y: f32,
+        radius: f32,
+        current_time: f32,
+        force_complete: bool,
+    ) {
+        // Calculate grid-aligned bounds
+        let min_x = WorldSystem::snap_to_grid(center_x - radius);
+        let max_x = WorldSystem::snap_to_grid(center_x + radius);
+        let min_y = WorldSystem::snap_to_grid((center_y - radius).max(GROUND_LEVEL));
+        let max_y = WorldSystem::snap_to_grid(center_y + radius);
 
         let mut tiles_to_add = Vec::new();
+        let mut tiles_added_this_call = 0;
+        let max_tiles_per_call = if force_complete { 200 } else { 64 };
 
-        // Generate tiles in a grid pattern
+        // Generate tiles in a precise grid pattern
         let mut x = min_x;
-        while x < max_x {
+        while x <= max_x && tiles_added_this_call < max_tiles_per_call {
             let mut y = min_y;
-            while y < max_y {
-                // Check if we need a tile here
-                if !self.has_ground_tile_at(x, y) {
-                    // Only add if it's in a reasonable area and we're not at max capacity
-                    if self.persistent_ground.len() < self.max_ground_tiles {
-                        let tile_type = if rand::gen_range(0.0, 1.0) < 0.7 {
-                            TileType::Grass
-                        } else if rand::gen_range(0.0, 1.0) < 0.5 {
-                            TileType::Dirt
-                        } else {
-                            TileType::Stone
-                        };
-
-                        tiles_to_add.push(GroundTile {
-                            x: WorldSystem::snap_to_grid(x),
-                            y: WorldSystem::snap_to_grid(y),
-                            tile_type,
-                            texture_data: TileTextureData {
-                                grass_patches: Vec::new(),
-                                dirt_spots: Vec::new(),
-                                stone_blocks: Vec::new(),
-                            },
-                        });
-                    }
+            while y <= max_y && tiles_added_this_call < max_tiles_per_call {
+                // Skip if we're at max capacity (unless force_complete for inner area)
+                if !force_complete && self.persistent_ground.len() >= self.max_ground_tiles {
+                    break;
                 }
-                y += tile_spacing;
+
+                // Check distance from center for circular generation
+                let dx = x - center_x;
+                let dy = y - center_y;
+                let distance_sq = dx * dx + dy * dy;
+                let radius_sq = radius * radius;
+
+                if distance_sq <= radius_sq && !self.has_ground_tile_at(x, y) {
+                    let tile_type = if rand::gen_range(0.0, 1.0) < 0.7 {
+                        TileType::Grass
+                    } else if rand::gen_range(0.0, 1.0) < 0.5 {
+                        TileType::Dirt
+                    } else {
+                        TileType::Stone
+                    };
+
+                    tiles_to_add.push(GroundTile {
+                        x,
+                        y,
+                        tile_type,
+                        texture_data: TileTextureData {
+                            grass_patches: Vec::new(),
+                            dirt_spots: Vec::new(),
+                            stone_blocks: Vec::new(),
+                        },
+                    });
+                    tiles_added_this_call += 1;
+                }
+                y += TILE_SIZE;
             }
-            x += tile_spacing;
+            x += TILE_SIZE;
         }
 
         // Add all generated tiles
@@ -582,8 +612,8 @@ mod tests {
     fn test_add_ground_tile() {
         let mut system = ExplorationSystem::new();
         let tile = GroundTile {
-            x: 100.0,
-            y: 100.0,
+            x: 128.0, // Grid-aligned coordinate (64 * 2)
+            y: 704.0, // Grid-aligned coordinate (64 * 11) and above ground level
             tile_type: TileType::Grass,
             texture_data: TileTextureData {
                 grass_patches: Vec::new(),
@@ -594,7 +624,7 @@ mod tests {
 
         system.add_ground_tile(tile, 0.0);
         assert_eq!(system.persistent_ground.len(), 1);
-        assert!(system.has_ground_tile_at(100.0, 100.0));
+        assert!(system.has_ground_tile_at(128.0, 704.0));
         assert!(!system.fog_cache_valid);
     }
 
@@ -633,5 +663,82 @@ mod tests {
 
         system.ensure_ground_near_player(0.0, 700.0, 0.0);
         assert!(system.persistent_ground.len() > initial_count);
+    }
+
+    #[test]
+    fn test_ground_coverage_no_gaps() {
+        let mut system = ExplorationSystem::new();
+
+        // Generate ground around a test position
+        let test_x = 512.0;
+        let test_y = 700.0;
+        system.ensure_ground_near_player(test_x, test_y, 0.0);
+
+        // Check for gaps in a grid pattern around the player
+        let check_radius = 192.0; // 3 tiles in each direction
+        let tile_size = TILE_SIZE;
+
+        let min_x = WorldSystem::snap_to_grid(test_x - check_radius);
+        let max_x = WorldSystem::snap_to_grid(test_x + check_radius);
+        let min_y = WorldSystem::snap_to_grid(test_y - check_radius);
+        let max_y = WorldSystem::snap_to_grid(test_y + check_radius);
+
+        let mut missing_tiles = Vec::new();
+
+        // Check every grid position for tile coverage
+        let mut x = min_x;
+        while x <= max_x {
+            let mut y = min_y;
+            while y <= max_y {
+                // Skip positions above ground level
+                if y >= GROUND_LEVEL {
+                    let dx = x - test_x;
+                    let dy = y - test_y;
+                    let distance = (dx * dx + dy * dy).sqrt();
+
+                    // Within the inner radius should have complete coverage
+                    if distance <= 256.0 && !system.has_ground_tile_at(x, y) {
+                        missing_tiles.push((x, y));
+                    }
+                }
+                y += tile_size;
+            }
+            x += tile_size;
+        }
+
+        // Assert no gaps exist in the inner coverage area
+        if !missing_tiles.is_empty() {
+            panic!(
+                "Found {} missing tiles in coverage area: {:?}",
+                missing_tiles.len(),
+                missing_tiles.iter().take(5).collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn test_ground_tile_grid_alignment() {
+        let mut system = ExplorationSystem::new();
+
+        // Generate tiles at various positions
+        system.ensure_ground_near_player(100.5, 650.3, 0.0);
+        system.ensure_ground_near_player(200.7, 750.9, 0.0);
+
+        // Verify all generated tiles are grid-aligned
+        for persistent_tile in &system.persistent_ground {
+            let tile = &persistent_tile.tile;
+
+            // Check that coordinates are multiples of TILE_SIZE
+            let x_aligned = (tile.x % TILE_SIZE).abs() < 0.1;
+            let y_aligned = (tile.y % TILE_SIZE).abs() < 0.1;
+
+            assert!(
+                x_aligned && y_aligned,
+                "Tile at ({}, {}) is not grid-aligned (TILE_SIZE = {})",
+                tile.x,
+                tile.y,
+                TILE_SIZE
+            );
+        }
     }
 }
