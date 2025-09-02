@@ -75,6 +75,7 @@ pub struct GameState {
     pub max_entities: usize,
     pub entity_cleanup_distance: f32,
     pub spawning_system: crate::systems::spawning::SpawningSystem,
+    pub exploration_system: crate::systems::exploration::ExplorationSystem,
 }
 
 impl GameState {
@@ -126,6 +127,7 @@ impl GameState {
             max_entities: 100,
             entity_cleanup_distance: 800.0,
             spawning_system: crate::systems::spawning::SpawningSystem::new(),
+            exploration_system: crate::systems::exploration::ExplorationSystem::new(),
         };
 
         // Initialize the world using the world system
@@ -138,6 +140,21 @@ impl GameState {
             &mut state.next_entity_id,
             &mut state.debug_messages,
         );
+
+        // Initialize exploration system with initial ground tiles
+        for tile in &state.ground_tiles {
+            state.exploration_system.add_ground_tile(tile.clone(), 0.0);
+        }
+
+        // Mark initial area around player as explored
+        if let Some(player) = state.entities.iter().find(|e| e.id == state.player_id) {
+            state.exploration_system.mark_area_explored(
+                player.position.x,
+                player.position.y,
+                200.0, // Initial exploration radius
+                0.0,   // Initial time
+            );
+        }
 
         state
     }
@@ -173,6 +190,7 @@ impl GameState {
         self.update_camera();
         self.update_phase_progression();
         self.update_spawning_system();
+        self.update_exploration_system();
 
         // Debug information every 5 seconds using macroquad timing
         if (self.game_time * 0.2).floor() != ((self.game_time - delta_time) * 0.2).floor() {
@@ -233,6 +251,7 @@ impl GameState {
     }
 
     /// Clean up entities that are too far from the player using macroquad vector operations
+    /// Note: Ground tiles are persistent and handled by the exploration system
     fn cleanup_distant_entities(&mut self) {
         use macroquad::prelude::vec2;
 
@@ -263,6 +282,7 @@ impl GameState {
     }
 
     /// Clean up dead entities and return them to the pool using efficient batch processing
+    /// Note: Ground tiles are persistent and handled by the exploration system
     fn cleanup_dead_entities(&mut self) {
         let initial_count = self.entities.len();
         let mut dead_entities = Vec::new();
@@ -299,6 +319,7 @@ impl GameState {
 
         let ai_stats = self.ai_system.get_ai_statistics();
         let spawn_stats = self.spawning_system.get_stats().clone();
+        let exploration_stats = self.exploration_system.get_stats();
         let current_fps = get_fps();
 
         self.add_debug_message(format!(
@@ -340,12 +361,14 @@ impl GameState {
             .count();
 
         self.add_debug_message(format!(
-            "Spawned: {} | H:{} A:{} C:{} | Fails:{}",
+            "Spawned: {} | H:{} A:{} C:{} | Fails:{} | Ground:{} | Explored:{}",
             spawn_stats.total_spawned,
             hostile_count,
             animal_count,
             clan_count,
-            spawn_stats.failed_spawns
+            spawn_stats.failed_spawns,
+            exploration_stats.persistent_ground_tiles,
+            exploration_stats.explored_regions
         ));
 
         if ai_stats.performance_mode {
@@ -364,6 +387,7 @@ impl GameState {
     pub fn set_performance_mode(&mut self, enabled: bool) {
         self.ai_system.set_performance_mode(enabled);
         self.spawning_system.set_performance_mode(enabled);
+        self.exploration_system.set_performance_mode(enabled);
 
         if enabled {
             self.max_entities = 75;
@@ -388,6 +412,7 @@ impl GameState {
         let start_time = get_time();
 
         // Use the more efficient batch cleanup with macroquad vectors
+        // Note: Ground tiles are now handled by the exploration system and are persistent
         self.batch_cleanup_with_macroquad();
 
         // Trigger immediate respawning to refill the world
@@ -646,6 +671,30 @@ impl GameState {
             self.game_time,
             self.max_entities,
         );
+    }
+
+    /// Update the exploration system for persistent ground and fog management
+    fn update_exploration_system(&mut self) {
+        if let Some((player_pos, _)) = self.get_cached_player_data() {
+            // Update exploration based on player position
+            self.exploration_system
+                .update_exploration(player_pos.x, player_pos.y, self.game_time);
+
+            // Ensure ground exists near player
+            self.exploration_system.ensure_ground_near_player(
+                player_pos.x,
+                player_pos.y,
+                self.game_time,
+            );
+
+            // Sync exploration system ground tiles with legacy ground_tiles for compatibility
+            let exploration_ground = self.exploration_system.get_ground_tiles();
+
+            // Only sync if there are significant differences
+            if (exploration_ground.len() as i32 - self.ground_tiles.len() as i32).abs() > 10 {
+                self.ground_tiles = exploration_ground;
+            }
+        }
     }
 
     /// Update shelter system
@@ -1016,33 +1065,10 @@ impl GameState {
         }
     }
 
-    /// Ensure ground tiles exist near the player position with movement-based generation
+    /// Ensure ground tiles exist near the player position - now handled by exploration system
     fn ensure_ground_near_player(&mut self) {
-        if let Some((player_pos, _)) = self.get_cached_player_data() {
-            use crate::systems::world::WorldSystem;
-
-            // Check if player has moved significantly in any direction
-            let movement_x = (player_pos.x - self.last_player_x).abs();
-            let movement_y = (player_pos.y - self.last_player_y).abs();
-            let significant_movement =
-                movement_x > self.movement_threshold || movement_y > self.movement_threshold;
-
-            // Only generate ground if we don't have too many tiles and player moved significantly
-            if significant_movement && self.ground_tiles.len() < 150 {
-                WorldSystem::ensure_ground_near_player(
-                    &mut self.ground_tiles,
-                    player_pos.x,
-                    player_pos.y,
-                    &mut self.debug_messages,
-                );
-
-                // Update tracking with larger threshold to reduce frequency
-                self.last_player_x = player_pos.x;
-                self.movement_threshold = 64.0; // Larger threshold for less frequent updates
-            }
-        }
-
-        // Skip directional spawning for performance
+        // This is now handled by the exploration system in update_exploration_system()
+        // Keeping this method for compatibility, but functionality moved to exploration system
     }
 
     /// Additional directional spawning for movement responsiveness
