@@ -23,7 +23,7 @@ pub const FOG_TILE_SIZE: f32 = 128.0; // Larger tiles for better performance
 pub const FOG_COLOR: [f32; 4] = [0.7, 0.7, 0.7, 0.6]; // Light grey with transparency
 pub const FOG_EDGE_FADE: f32 = 32.0; // Distance for fog edge fading
 pub const FOG_MIN_ALPHA: f32 = 0.3; // Minimum fog transparency
-pub const FOG_EXPANSION_RADIUS: f32 = 128.0; // How far to expand fog beyond visible area
+pub const FOG_EXPANSION_RADIUS: f32 = 256.0; // How far to expand fog beyond visible area (increased for better coverage)
 pub const TILE_SIZE: f32 = 64.0; // Standard tile size for consistent alignment
 pub const FOG_BUFFER_TILES: i32 = 2; // Extra fog tiles around explored areas to prevent gaps
 
