@@ -150,3 +150,74 @@ fn count_total_entities(entities: &[GameEntity]) -> usize {
         .filter(|e| !matches!(e.ai_state, AIState::Dead))
         .count()
 }
+
+#[test]
+fn test_hostile_spawning_debug() {
+    let mut game_state = GameState::new();
+
+    // Clear all entities except player
+    game_state.entities.retain(|e| e.id == game_state.player_id);
+
+    let initial_time = 0.0;
+    game_state.game_time = initial_time;
+
+    // Test immediate spawning (should not spawn due to timing)
+    game_state.spawning_system.update(
+        &mut game_state.entities,
+        &mut game_state.next_entity_id,
+        game_state.player_id,
+        initial_time,
+        game_state.max_entities,
+    );
+
+    let count_immediate = count_hostiles(&game_state.entities);
+    println!(
+        "Entities after immediate spawn attempt: {}",
+        count_immediate
+    );
+
+    // Test spawning after interval (hostile default is 5.0s)
+    let spawn_time = initial_time + 6.0;
+    game_state.spawning_system.update(
+        &mut game_state.entities,
+        &mut game_state.next_entity_id,
+        game_state.player_id,
+        spawn_time,
+        game_state.max_entities,
+    );
+
+    let count_after_interval = count_hostiles(&game_state.entities);
+    println!("Entities after 6s interval: {}", count_after_interval);
+
+    // Multiple spawn attempts over time
+    for i in 1..=10 {
+        let current_time = spawn_time + (i as f32 * 6.0); // Every 6 seconds
+        game_state.spawning_system.update(
+            &mut game_state.entities,
+            &mut game_state.next_entity_id,
+            game_state.player_id,
+            current_time,
+            game_state.max_entities,
+        );
+
+        let current_count = count_hostiles(&game_state.entities);
+        println!("After {}s: {} hostiles", current_time, current_count);
+    }
+
+    let final_stats = game_state.spawning_system.get_stats();
+    println!(
+        "Final stats - Total spawned: {}, Failed: {}",
+        final_stats.total_spawned, final_stats.failed_spawns
+    );
+
+    // Should have spawned some hostiles
+    let final_count = count_hostiles(&game_state.entities);
+    assert!(
+        final_count > 0,
+        "No hostile entities spawned after multiple attempts"
+    );
+    assert!(
+        final_stats.total_spawned > 0,
+        "Spawning system reports no spawns"
+    );
+}

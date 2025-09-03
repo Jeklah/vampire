@@ -47,12 +47,12 @@ impl SpawnConfig {
 
     /// Create configuration for hostile entities
     pub fn hostile_default() -> Self {
-        Self::new(12, 8.0, 200.0, 400.0, 2) // Max 12, spawn every 8s, 2 at a time
+        Self::new(15, 3.0, 150.0, 400.0, 4) // Max 15, spawn every 3s, 4 at a time (more frequent spawning)
     }
 
     /// Create configuration for animals
     pub fn animal_default() -> Self {
-        Self::new(15, 6.0, 150.0, 350.0, 3) // Max 15, spawn every 6s, 3 at a time
+        Self::new(12, 5.0, 150.0, 350.0, 3) // Max 12, spawn every 5s, 3 at a time
     }
 
     /// Create configuration for clan members
@@ -360,7 +360,7 @@ impl SpawningSystem {
         player_pos: Position,
         config: &SpawnConfig,
     ) -> Option<(f32, f32)> {
-        const MAX_ATTEMPTS: usize = 10;
+        const MAX_ATTEMPTS: usize = 20; // Increased attempts for better success rate
 
         for _ in 0..MAX_ATTEMPTS {
             // Generate random angle and distance
@@ -370,11 +370,23 @@ impl SpawningSystem {
             let spawn_x = player_pos.x + angle.cos() * distance;
             let spawn_y = player_pos.y + angle.sin() * distance;
 
-            // Basic validation - ensure we're on ground level
-            if spawn_y > 500.0 && spawn_y < 700.0 {
-                // Within reasonable ground bounds
+            // Improved validation - use proper ground level bounds
+            // GROUND_LEVEL is 640.0, so allow spawning at and below ground level
+            if spawn_y >= 640.0 && spawn_y <= 1200.0 {
+                // Within proper ground bounds (aligned with GROUND_LEVEL system)
                 return Some((spawn_x, spawn_y));
             }
+        }
+
+        // Fallback: try spawning directly at ground level near player
+        for _ in 0..5 {
+            let angle = rand::gen_range(0.0, 2.0 * std::f32::consts::PI);
+            let distance = rand::gen_range(config.min_spawn_distance, config.max_spawn_distance);
+
+            let spawn_x = player_pos.x + angle.cos() * distance;
+            let spawn_y = 650.0; // Just below ground level
+
+            return Some((spawn_x, spawn_y));
         }
 
         None

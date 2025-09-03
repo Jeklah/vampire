@@ -65,9 +65,9 @@ impl WorldSystem {
         // Spawn clan leaders
         Self::spawn_all_clan_leaders(entities, next_entity_id);
 
-        // Spawn fewer initial entities to prevent early FPS drops
-        Self::spawn_hostile_infected_group(entities, next_entity_id, 6); // Reduced from 8
-        Self::spawn_animal_group(entities, next_entity_id, 8); // Reduced from 12
+        // Spawn initial entities with better distribution
+        Self::spawn_hostile_infected_group(entities, next_entity_id, 10); // Increased for better population
+        Self::spawn_animal_group(entities, next_entity_id, 8); // Keep current amount
 
         // Spawn shelters throughout the world
         Self::spawn_world_shelters(entities, next_entity_id, debug_messages);
