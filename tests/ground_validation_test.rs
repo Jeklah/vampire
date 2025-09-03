@@ -147,11 +147,13 @@ fn test_ensure_ground_near_player() {
         &mut debug_messages,
     );
 
-    // Should have spawned ground tiles
-    assert!(!ground_tiles.is_empty());
+    // This method is now deprecated and only adds debug messages
+    // Ground tiles should remain empty as functionality moved to ExplorationSystem
+    assert!(ground_tiles.is_empty());
     assert!(!debug_messages.is_empty());
+    assert!(debug_messages[0].contains("LEGACY: WorldSystem::ensure_ground_near_player called"));
 
-    // Test with player at horizon level - tiles should spawn at/below horizon
+    // Test with player at horizon level - should also only add debug message
     let mut ground_tiles2 = Vec::new();
     let mut debug_messages2 = Vec::new();
     let player_y_horizon = 640.0; // At horizon line
@@ -163,11 +165,10 @@ fn test_ensure_ground_near_player() {
         &mut debug_messages2,
     );
 
-    // Should spawn tiles at or below horizon line only
-    assert!(!ground_tiles2.is_empty());
-    for tile in &ground_tiles2 {
-        assert!(tile.y >= 640.0); // All tiles at or below horizon line
-    }
+    // Should not spawn tiles - method is deprecated
+    assert!(ground_tiles2.is_empty());
+    assert!(!debug_messages2.is_empty());
+    assert!(debug_messages2[0].contains("LEGACY: WorldSystem::ensure_ground_near_player called"));
 
     // Test with player far outside original world bounds but below horizon
     let mut ground_tiles3 = Vec::new();
@@ -182,13 +183,12 @@ fn test_ensure_ground_near_player() {
         &mut debug_messages3,
     );
 
-    // Should spawn tiles even outside original bounds, but only below horizon
-    assert!(!ground_tiles3.is_empty());
-    for tile in &ground_tiles3 {
-        assert!(tile.y >= 640.0); // All tiles at or below horizon line
-    }
+    // Should not spawn tiles - method is deprecated
+    assert!(ground_tiles3.is_empty());
+    assert!(!debug_messages3.is_empty());
+    assert!(debug_messages3[0].contains("LEGACY: WorldSystem::ensure_ground_near_player called"));
 
-    // Test with existing ground coverage - should not spawn many new tiles
+    // Test with existing ground coverage - should still only add debug message
     let initial_count = ground_tiles.len();
     systems::world::WorldSystem::ensure_ground_near_player(
         &mut ground_tiles,
@@ -197,9 +197,9 @@ fn test_ensure_ground_near_player() {
         &mut debug_messages,
     );
 
-    // Should not spawn many new tiles since area is already covered
+    // Should not spawn any new tiles since method is deprecated
     let new_count = ground_tiles.len();
-    assert!(new_count - initial_count < 100); // Allow even more tiles with improved generation
+    assert_eq!(new_count, initial_count); // No new tiles should be added
 }
 
 #[test]
