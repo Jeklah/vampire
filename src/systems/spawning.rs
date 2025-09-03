@@ -47,7 +47,7 @@ impl SpawnConfig {
 
     /// Create configuration for hostile entities
     pub fn hostile_default() -> Self {
-        Self::new(15, 3.0, 150.0, 400.0, 4) // Max 15, spawn every 3s, 4 at a time (more frequent spawning)
+        Self::new(12, 8.0, 150.0, 400.0, 2) // Max 12, spawn every 8s, 2 at a time (balanced spawning)
     }
 
     /// Create configuration for animals
@@ -147,15 +147,21 @@ impl SpawningSystem {
         self.performance_mode = enabled;
 
         // Adjust all spawn configurations for performance
-        for timer in self.spawn_timers.values_mut() {
-            if enabled {
-                timer.config.performance_mode();
-            } else {
-                // Reset to defaults (this is a simplified approach)
-                match timer.config.max_count {
-                    count if count <= 8 => timer.config = SpawnConfig::hostile_default(),
-                    count if count <= 11 => timer.config = SpawnConfig::animal_default(),
-                    _ => timer.config = SpawnConfig::clan_member_default(),
+        // Create a list of spawn types to iterate over (to avoid borrowing issues)
+        let spawn_types: Vec<String> = self.spawn_timers.keys().cloned().collect();
+
+        for spawn_type in spawn_types {
+            if let Some(timer) = self.spawn_timers.get_mut(&spawn_type) {
+                if enabled {
+                    timer.config.performance_mode();
+                } else {
+                    // Reset to defaults based on spawn type
+                    timer.config = match spawn_type.as_str() {
+                        "hostile" => SpawnConfig::hostile_default(),
+                        "animal" => SpawnConfig::animal_default(),
+                        "clan_member" => SpawnConfig::clan_member_default(),
+                        _ => SpawnConfig::hostile_default(), // fallback for unknown types
+                    };
                 }
             }
         }
