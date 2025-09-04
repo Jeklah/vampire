@@ -103,7 +103,7 @@ impl ExplorationSystem {
             ground_generator: GroundGenerationSystem::new(),
             max_ground_tiles: 1000,
             max_explored_regions: 100,
-            grid_cell_size: TILE_SIZE,
+            grid_cell_size: FOG_TILE_SIZE,
         }
     }
 
@@ -115,9 +115,9 @@ impl ExplorationSystem {
             self.persistent_ground
                 .push(PersistentGroundTile::new(tile.clone(), current_time));
 
-            // Mark grid cell as explored
-            let grid_x = (tile.x / self.grid_cell_size).floor() as i32;
-            let grid_y = (tile.y / self.grid_cell_size).floor() as i32;
+            // Mark grid cell as explored - align with fog tile boundaries
+            let grid_x = (tile.x / FOG_TILE_SIZE).floor() as i32;
+            let grid_y = (tile.y / FOG_TILE_SIZE).floor() as i32;
             self.explored_grid.insert((grid_x, grid_y));
 
             // Create explored region
@@ -187,32 +187,64 @@ impl ExplorationSystem {
         let x = center_x - radius;
         let y = center_y - radius;
 
+        // Mark grid cells as explored for faster lookup - align with fog tile boundaries
+        let cells_x = (size / FOG_TILE_SIZE).ceil() as i32;
+        let cells_y = (size / FOG_TILE_SIZE).ceil() as i32;
+
+        for cell_x in 0..cells_x {
+            for cell_y in 0..cells_y {
+                let grid_x = ((x + cell_x as f32 * FOG_TILE_SIZE) / FOG_TILE_SIZE).floor() as i32;
+                let grid_y = ((y + cell_y as f32 * FOG_TILE_SIZE) / FOG_TILE_SIZE).floor() as i32;
+                self.explored_grid.insert((grid_x, grid_y));
+            }
+        }
+
         self.add_explored_region(x, y, size, size, time);
         self.invalidate_fog_cache();
     }
 
     /// Check if an area has been explored
     pub fn is_area_explored(&self, x: f32, y: f32, width: f32, height: f32) -> bool {
-        // Quick grid check first
-        let grid_x = (x / self.grid_cell_size).floor() as i32;
-        let grid_y = (y / self.grid_cell_size).floor() as i32;
+        // Check multiple grid cells for larger areas
+        let cells_to_check_x = ((width / FOG_TILE_SIZE).ceil() as i32).max(1);
+        let cells_to_check_y = ((height / FOG_TILE_SIZE).ceil() as i32).max(1);
 
-        if self.explored_grid.contains(&(grid_x, grid_y)) {
-            return true;
+        for cell_x in 0..cells_to_check_x {
+            for cell_y in 0..cells_to_check_y {
+                let grid_x = ((x + cell_x as f32 * FOG_TILE_SIZE) / FOG_TILE_SIZE).floor() as i32;
+                let grid_y = ((y + cell_y as f32 * FOG_TILE_SIZE) / FOG_TILE_SIZE).floor() as i32;
+
+                if self.explored_grid.contains(&(grid_x, grid_y)) {
+                    return true;
+                }
+            }
         }
 
-        // Check explored regions
-        self.explored_regions.iter().any(|region| {
-            region.overlaps_with(x, y, width, height)
-        }) ||
+        // Check explored regions with more precise overlap detection
+        for region in &self.explored_regions {
+            // Check if any part of the test area overlaps with the explored region
+            if !(x + width <= region.x
+                || x >= region.x + region.width
+                || y + height <= region.y
+                || y >= region.y + region.height)
+            {
+                return true;
+            }
+        }
+
         // Check persistent ground tiles
-        self.persistent_ground.iter().any(|persistent_tile| {
+        for persistent_tile in &self.persistent_ground {
             let tile = &persistent_tile.tile;
-            !(tile.x + TILE_SIZE <= x
+            if !(tile.x + TILE_SIZE <= x
                 || tile.x >= x + width
                 || tile.y + TILE_SIZE <= y
                 || tile.y >= y + height)
-        })
+            {
+                return true;
+            }
+        }
+
+        false
     }
 
     /// Generate fog areas that don't overlap with explored regions
@@ -292,13 +324,43 @@ impl ExplorationSystem {
 
     /// Calculate fog alpha based on distance to explored areas
     fn calculate_fog_alpha(&self, fog_x: f32, fog_y: f32, _current_time: f32) -> f32 {
+        // Check if this fog tile overlaps with any explored region
+        for region in &self.explored_regions {
+            // Check for overlap between fog tile and explored region
+            if !(fog_x + FOG_TILE_SIZE <= region.x
+                || fog_x >= region.x + region.width
+                || fog_y + FOG_TILE_SIZE <= region.y
+                || fog_y >= region.y + region.height)
+            {
+                return 0.0; // No fog in explored areas
+            }
+        }
+
+        // Check if this fog tile overlaps with any ground tile
+        for persistent_tile in &self.persistent_ground {
+            let tile = &persistent_tile.tile;
+            if !(fog_x + FOG_TILE_SIZE <= tile.x
+                || fog_x >= tile.x + TILE_SIZE
+                || fog_y + FOG_TILE_SIZE <= tile.y
+                || fog_y >= tile.y + TILE_SIZE)
+            {
+                return 0.0; // No fog where ground exists
+            }
+        }
+
+        // Find minimum distance to explored areas for fade effect
         let mut min_distance = f32::MAX;
-        let search_radius = 200.0;
+        let search_radius = 250.0; // Increased for smoother transitions
 
         // Check distance to explored regions
         for region in &self.explored_regions {
-            let dx = (region.x + region.width * 0.5) - (fog_x + FOG_TILE_SIZE * 0.5);
-            let dy = (region.y + region.height * 0.5) - (fog_y + FOG_TILE_SIZE * 0.5);
+            let region_center_x = region.x + region.width * 0.5;
+            let region_center_y = region.y + region.height * 0.5;
+            let fog_center_x = fog_x + FOG_TILE_SIZE * 0.5;
+            let fog_center_y = fog_y + FOG_TILE_SIZE * 0.5;
+
+            let dx = region_center_x - fog_center_x;
+            let dy = region_center_y - fog_center_y;
 
             if dx.abs() <= search_radius && dy.abs() <= search_radius {
                 let distance = (dx * dx + dy * dy).sqrt();
@@ -306,34 +368,26 @@ impl ExplorationSystem {
             }
         }
 
-        // Check distance to persistent ground tiles
-        for persistent_tile in &self.persistent_ground {
-            let tile = &persistent_tile.tile;
-            let dx = tile.x - fog_x;
-            let dy = tile.y - fog_y;
+        // Calculate alpha with smoother transition
+        let fade_start_distance = 50.0; // Start fading closer to explored areas
+        let fade_end_distance = 150.0; // Full fog at this distance
 
-            if dx.abs() <= search_radius && dy.abs() <= search_radius {
-                let distance = (dx * dx + dy * dy).sqrt();
-                min_distance = min_distance.min(distance);
-            }
-        }
-
-        // Calculate alpha with smooth transition
-        let fade_distance = 100.0;
-        if min_distance >= fade_distance {
-            FOG_COLOR[3]
-        } else if min_distance <= FOG_TILE_SIZE {
-            0.2 // Minimum alpha near explored areas
+        if min_distance <= fade_start_distance {
+            0.0 // No fog near explored areas
+        } else if min_distance >= fade_end_distance {
+            FOG_COLOR[3] // Full fog opacity
         } else {
-            let fade_factor = (min_distance - FOG_TILE_SIZE) / (fade_distance - FOG_TILE_SIZE);
-            0.2 + (FOG_COLOR[3] - 0.2) * fade_factor
+            // Smooth fade between no fog and full fog
+            let fade_factor =
+                (min_distance - fade_start_distance) / (fade_end_distance - fade_start_distance);
+            fade_factor * FOG_COLOR[3]
         }
     }
 
     /// Update exploration based on player position
     pub fn update_exploration(&mut self, player_x: f32, player_y: f32, current_time: f32) {
         // Check if player is entering unexplored areas
-        let exploration_radius = 128.0;
+        let exploration_radius = 200.0;
         let upcoming_areas =
             self.get_upcoming_exploration_areas(player_x, player_y, exploration_radius);
 
@@ -495,8 +549,8 @@ impl ExplorationSystem {
         self.explored_grid.clear();
         for persistent_tile in &self.persistent_ground {
             let tile = &persistent_tile.tile;
-            let grid_x = (tile.x / self.grid_cell_size).floor() as i32;
-            let grid_y = (tile.y / self.grid_cell_size).floor() as i32;
+            let grid_x = (tile.x / FOG_TILE_SIZE).floor() as i32;
+            let grid_y = (tile.y / FOG_TILE_SIZE).floor() as i32;
             self.explored_grid.insert((grid_x, grid_y));
         }
     }
@@ -740,5 +794,70 @@ mod tests {
                 TILE_SIZE
             );
         }
+    }
+
+    #[test]
+    fn test_spatial_system_coordination() {
+        let mut exploration_system = ExplorationSystem::new();
+
+        // Test that fog tile boundaries align with exploration grid
+        let test_x = 256.0; // 2 * FOG_TILE_SIZE
+        let test_y = 768.0; // 6 * FOG_TILE_SIZE
+
+        // Mark area as explored
+        exploration_system.mark_area_explored(test_x, test_y, 200.0, 0.0);
+
+        // Verify that fog tiles at this location are properly marked as explored
+        assert!(exploration_system.is_area_explored(test_x, test_y, FOG_TILE_SIZE, FOG_TILE_SIZE));
+
+        // Verify that ground tiles within this area would be considered explored
+        let ground_tile_x = test_x + 32.0; // Within the explored area
+        let ground_tile_y = test_y + 32.0;
+        assert!(exploration_system.is_area_explored(
+            ground_tile_x,
+            ground_tile_y,
+            TILE_SIZE,
+            TILE_SIZE
+        ));
+
+        // Test fog alpha calculation coordination
+        let fog_alpha_explored = exploration_system.calculate_fog_alpha(test_x, test_y, 0.0);
+        let fog_alpha_unexplored =
+            exploration_system.calculate_fog_alpha(test_x + 500.0, test_y, 0.0);
+
+        assert!(
+            fog_alpha_explored < 0.1,
+            "Fog should be minimal in explored areas"
+        );
+        assert!(
+            fog_alpha_unexplored > 0.5,
+            "Fog should be significant in unexplored areas"
+        );
+
+        // Test that ground generation and exploration tracking coordinate properly
+        let ground_tile = GroundTile {
+            x: WorldSystem::snap_to_grid(test_x + 64.0),
+            y: WorldSystem::snap_to_grid(test_y + 64.0),
+            tile_type: TileType::Grass,
+            texture_data: TileTextureData::default(),
+        };
+
+        exploration_system.add_ground_tile(ground_tile.clone(), 0.0);
+
+        // Verify the ground tile area is marked as explored
+        assert!(exploration_system.is_area_explored(
+            ground_tile.x,
+            ground_tile.y,
+            TILE_SIZE,
+            TILE_SIZE
+        ));
+
+        // Verify fog calculation accounts for the ground tile
+        let fog_alpha_near_ground =
+            exploration_system.calculate_fog_alpha(ground_tile.x, ground_tile.y, 0.0);
+        assert!(
+            fog_alpha_near_ground < 0.1,
+            "Fog should be minimal near ground tiles"
+        );
     }
 }
