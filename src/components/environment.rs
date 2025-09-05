@@ -3,6 +3,7 @@
 //! This module contains components for environmental elements like stars, moon,
 //! ground tiles, and particle effects.
 
+use crate::rendering::colors::GameColors;
 use macroquad::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -112,8 +113,8 @@ impl BloodParticle {
         draw_circle(
             screen_x,
             screen_y,
-            7.0,                            // Half the original size
-            Color::new(1.0, 0.0, 0.0, 1.0), // Bright red, fully opaque
+            7.0,                        // Half the original size
+            GameColors::BLOOD_PARTICLE, // Bright red, fully opaque
         );
     }
 }

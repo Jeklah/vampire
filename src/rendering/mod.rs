@@ -2,9 +2,12 @@
 //!
 //! This module handles all rendering and drawing operations for the Vampire RPG.
 
+pub mod colors;
+
 use crate::components::*;
 use crate::game_state::GameState;
 use crate::systems::ShelterSystem;
+use colors::{ColorExt, GameColors};
 use macroquad::prelude::*;
 
 pub struct Renderer {
@@ -109,7 +112,7 @@ impl Renderer {
         // Update UI scaling for fullscreen
         self.update_ui_scaling();
 
-        clear_background(Color::new(0.05, 0.05, 0.15, 1.0)); // Dark blue night sky
+        clear_background(GameColors::NIGHT_SKY);
 
         // Calculate camera offset with zoom
         let camera_offset_x = screen_width() / 2.0 - game_state.camera_x * self.zoom_level;
@@ -330,7 +333,7 @@ impl Renderer {
             bar_y,
             bar_width,
             bar_height,
-            Color::new(0.3, 0.0, 0.0, 0.8),
+            GameColors::HEALTH_BAR_BACKGROUND,
         );
 
         // Health bar
@@ -398,7 +401,7 @@ impl Renderer {
                     y_offset,
                     200.0 * self.ui_scale,
                     20.0 * self.ui_scale,
-                    Color::new(0.3, 0.0, 0.0, 1.0),
+                    GameColors::UI_BLOOD_METER_BG,
                 );
                 let health_width = 200.0 * self.ui_scale * (health.current / health.max);
                 draw_rectangle(
@@ -425,7 +428,7 @@ impl Renderer {
                     y_offset,
                     200.0 * self.ui_scale,
                     20.0 * self.ui_scale,
-                    Color::new(0.0, 0.0, 0.3, 1.0),
+                    GameColors::UI_METER_BG,
                 );
                 let blood_width = 200.0 * self.ui_scale * (blood.current / blood.maximum);
                 draw_rectangle(
@@ -529,7 +532,7 @@ impl Renderer {
             0.0,
             screen_width(),
             screen_height(),
-            Color::new(0.0, 0.0, 0.0, 0.7),
+            GameColors::UI_PAUSE_OVERLAY,
         );
 
         let center_x = screen_width() / 2.0;
@@ -551,7 +554,7 @@ impl Renderer {
             50.0,
             screen_width() - 100.0,
             screen_height() - 100.0,
-            Color::new(0.1, 0.1, 0.2, 0.9),
+            GameColors::UI_CLAN_MENU_BG,
         );
 
         self.draw_text_with_font("CLAN RELATIONS", 70.0, 80.0, 24.0, WHITE);
@@ -605,7 +608,7 @@ impl Renderer {
             50.0,
             270.0,
             400.0,
-            Color::new(0.0, 0.0, 0.0, 0.8),
+            GameColors::UI_LEGEND_BG,
         );
 
         // Legend title
@@ -823,7 +826,7 @@ impl Renderer {
         match tile.tile_type {
             TileType::Grass => {
                 // Base grass color
-                draw_rectangle(x, y, size, size, Color::new(0.2, 0.4, 0.1, 1.0));
+                draw_rectangle(x, y, size, size, GameColors::GROUND_GRASS_BASE);
 
                 // Optimized detail: draw fewer patches for performance
                 for (i, (px_offset, py_offset, width, height)) in
@@ -838,14 +841,14 @@ impl Renderer {
                             py,
                             width * scale,
                             height * scale,
-                            Color::new(0.3, 0.6, 0.2, 1.0),
+                            GameColors::GROUND_GRASS_DETAIL,
                         );
                     }
                 }
             }
             TileType::DeadGrass => {
                 // Dead grass base
-                draw_rectangle(x, y, size, size, Color::new(0.4, 0.3, 0.1, 1.0));
+                draw_rectangle(x, y, size, size, GameColors::GROUND_DEAD_GRASS_BASE);
 
                 // Optimized detail for dead grass
                 for (i, (px_offset, py_offset, width, height)) in
@@ -859,14 +862,14 @@ impl Renderer {
                             py,
                             width * scale,
                             height * scale,
-                            Color::new(0.5, 0.4, 0.2, 1.0),
+                            GameColors::GROUND_DEAD_GRASS_DETAIL,
                         );
                     }
                 }
             }
             TileType::Dirt => {
                 // Base dirt color
-                draw_rectangle(x, y, size, size, Color::new(0.4, 0.2, 0.1, 1.0));
+                draw_rectangle(x, y, size, size, GameColors::GROUND_DIRT_BASE);
 
                 // Optimized dirt spots
                 for (i, (px_offset, py_offset, radius)) in
@@ -876,13 +879,13 @@ impl Renderer {
                         // Draw every other spot
                         let px = x + px_offset * scale;
                         let py = y + py_offset * scale;
-                        draw_circle(px, py, radius * scale, Color::new(0.3, 0.15, 0.05, 1.0));
+                        draw_circle(px, py, radius * scale, GameColors::GROUND_DIRT_SPOTS);
                     }
                 }
             }
             TileType::Stone => {
-                // Simplified stone rendering
-                draw_rectangle(x, y, size, size, Color::new(0.5, 0.5, 0.5, 1.0));
+                // Simplified stone rendering - brown to distinguish from black fog
+                draw_rectangle(x, y, size, size, GameColors::GROUND_STONE_BASE);
 
                 // Optimized stone blocks
                 for (i, (px_offset, py_offset, width, height)) in
@@ -897,7 +900,7 @@ impl Renderer {
                             py,
                             width * scale,
                             height * scale,
-                            Color::new(0.6, 0.6, 0.6, 1.0),
+                            GameColors::GROUND_STONE_DETAIL,
                         );
                     }
                 }
@@ -908,10 +911,10 @@ impl Renderer {
     fn draw_simple_ground_tile(&self, x: f32, y: f32, size: f32, tile_type: &TileType) {
         // Simplified tile rendering for performance mode
         let color = match tile_type {
-            TileType::Grass => Color::new(0.2, 0.4, 0.1, 1.0),
-            TileType::DeadGrass => Color::new(0.4, 0.3, 0.1, 1.0),
-            TileType::Dirt => Color::new(0.4, 0.2, 0.1, 1.0),
-            TileType::Stone => Color::new(0.5, 0.5, 0.5, 1.0),
+            TileType::Grass => GameColors::GROUND_GRASS_BASE,
+            TileType::DeadGrass => GameColors::GROUND_DEAD_GRASS_BASE,
+            TileType::Dirt => GameColors::GROUND_DIRT_BASE,
+            TileType::Stone => GameColors::GROUND_STONE_BASE,
         };
         draw_rectangle(x, y, size, size, color);
     }
@@ -929,9 +932,9 @@ impl Renderer {
         // Always draw a subtle horizon line for reference
         if horizon_screen_y >= -20.0 && horizon_screen_y <= screen_height() + 20.0 {
             let line_color = if game_state.is_moving_toward_horizon {
-                Color::new(1.0, 0.8, 0.2, 0.6) // Bright yellow when active
+                GameColors::HORIZON_ACTIVE
             } else {
-                Color::new(0.4, 0.4, 0.6, 0.2) // Dim blue when inactive
+                GameColors::HORIZON_INACTIVE
             };
 
             draw_line(
@@ -968,7 +971,7 @@ impl Renderer {
                 10.0,
                 30.0,
                 16.0,
-                Color::new(1.0, 1.0, 0.0, 1.0),
+                GameColors::HORIZON_TEXT,
             );
         } else {
             // Show inactive status with efficiency
@@ -1049,8 +1052,6 @@ impl Renderer {
         camera_offset_x: f32,
         camera_offset_y: f32,
     ) {
-        use crate::systems::world::FOG_COLOR;
-
         // Use exploration system for persistent fog of war management
         let fog_areas = game_state.exploration_system.calculate_fog_areas(
             game_state.camera_x,
@@ -1075,12 +1076,15 @@ impl Renderer {
                 && screen_y + fog_screen_height > -margin
                 && screen_y < screen_height() + margin
             {
+                // Ensure fog is always visible by using minimum alpha
+                let final_alpha = alpha.max(GameColors::FOG_MIN_ALPHA);
+
                 draw_rectangle(
                     screen_x,
                     screen_y,
                     fog_screen_width,
                     fog_screen_height,
-                    Color::new(FOG_COLOR[0], FOG_COLOR[1], FOG_COLOR[2], *alpha),
+                    GameColors::FOG_BLACK.with_alpha(final_alpha),
                 );
             }
         }

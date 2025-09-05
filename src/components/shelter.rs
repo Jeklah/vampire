@@ -3,6 +3,7 @@
 //! This module contains components for shelter structures that provide
 //! protection from sunlight during daytime, essential for vampire survival.
 
+use crate::rendering::colors::GameColors;
 use macroquad::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -81,26 +82,26 @@ impl ShelterType {
     /// Get the primary color for rendering this shelter type
     pub fn primary_color(&self) -> Color {
         match self {
-            ShelterType::Cave => Color::new(0.4, 0.3, 0.2, 1.0), // Brown
-            ShelterType::Building => Color::new(0.6, 0.6, 0.6, 1.0), // Gray
-            ShelterType::TreeCover => Color::new(0.2, 0.5, 0.2, 1.0), // Dark green
-            ShelterType::Underground => Color::new(0.3, 0.3, 0.3, 1.0), // Dark gray
-            ShelterType::Ruins => Color::new(0.5, 0.4, 0.3, 1.0), // Tan
-            ShelterType::Shed => Color::new(0.4, 0.2, 0.1, 1.0), // Dark brown
-            ShelterType::BridgeUnderpass => Color::new(0.5, 0.5, 0.5, 1.0), // Medium gray
+            ShelterType::Cave => GameColors::SHELTER_CAVE_PRIMARY,
+            ShelterType::Building => GameColors::SHELTER_BUILDING_PRIMARY,
+            ShelterType::TreeCover => GameColors::SHELTER_TREE_PRIMARY,
+            ShelterType::Underground => GameColors::SHELTER_UNDERGROUND_PRIMARY,
+            ShelterType::Ruins => GameColors::SHELTER_RUINS_PRIMARY,
+            ShelterType::Shed => GameColors::SHELTER_SHED_PRIMARY,
+            ShelterType::BridgeUnderpass => GameColors::SHELTER_BRIDGE_PRIMARY,
         }
     }
 
     /// Get the secondary color for details/highlights
     pub fn secondary_color(&self) -> Color {
         match self {
-            ShelterType::Cave => Color::new(0.2, 0.1, 0.1, 1.0), // Dark brown
-            ShelterType::Building => Color::new(0.3, 0.3, 0.4, 1.0), // Blue-gray
-            ShelterType::TreeCover => Color::new(0.1, 0.3, 0.1, 1.0), // Darker green
-            ShelterType::Underground => Color::new(0.1, 0.1, 0.1, 1.0), // Black
-            ShelterType::Ruins => Color::new(0.7, 0.6, 0.4, 1.0), // Light tan
-            ShelterType::Shed => Color::new(0.6, 0.3, 0.1, 1.0), // Orange-brown
-            ShelterType::BridgeUnderpass => Color::new(0.7, 0.7, 0.7, 1.0), // Light gray
+            ShelterType::Cave => GameColors::SHELTER_CAVE_SECONDARY,
+            ShelterType::Building => GameColors::SHELTER_BUILDING_SECONDARY,
+            ShelterType::TreeCover => GameColors::SHELTER_TREE_SECONDARY,
+            ShelterType::Underground => GameColors::SHELTER_UNDERGROUND_SECONDARY,
+            ShelterType::Ruins => GameColors::SHELTER_RUINS_SECONDARY,
+            ShelterType::Shed => GameColors::SHELTER_SHED_SECONDARY,
+            ShelterType::BridgeUnderpass => GameColors::SHELTER_BRIDGE_SECONDARY,
         }
     }
 
